@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Minha Conta{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Minha Conta</h2>
+  <p>Usuário: <strong>{{ session.get('usuario_nome') }}</strong> &middot; Papel: <span class="badge {{ session.get('papel') }}">{{ session.get('papel') }}</span></p>
+  <form method="POST" autocomplete="off">
+    <label>Senha atual</label>
+    <input type="password" name="senha_atual" required autocomplete="off">
+    <label>Nova senha</label>
+    <input type="password" name="nova_senha" required autocomplete="off">
+    <button type="submit">Atualizar Senha</button>
+  </form>
+</div>
+{% endblock %}

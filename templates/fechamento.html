@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Fechamento Mensal{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Fechamento Mensal</h2>
+  <form method="GET" class="row">
+    <div>
+      <label>Mês de referência</label>
+      <input type="month" name="mes" value="{{ mes }}">
+    </div>
+    <div style="display:flex; align-items:flex-end;">
+      <button type="submit">Calcular</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Total Bruto de Entradas no Mês</h3>
+  <div class="total-box">R$ {{ "%.2f"|format(total_bruto)|replace(".", ",") }}</div>
+
+  <table>
+    <thead><tr><th>Destino</th><th>% sobre o bruto</th><th>Valor a repassar</th></tr></thead>
+    <tbody>
+      <tr>
+        <td data-label="Destino">Sede Mundial (Maringá)</td>
+        <td data-label="%">{{ (taxa_sede * 100)|int }}%</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(valor_sede)|replace(".", ",") }}</td>
+      </tr>
+      <tr>
+        <td data-label="Destino">Fundo (Sede Mundial)</td>
+        <td data-label="%">{{ (taxa_fundo * 100)|int }}%</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(valor_fundo)|replace(".", ",") }}</td>
+      </tr>
+      <tr>
+        <td data-label="Destino">Sede Regional (Francisco Beltrão)</td>
+        <td data-label="%">{{ (taxa_regional * 100)|int }}%</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(valor_regional)|replace(".", ",") }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="total-box">Total das taxas (23%): R$ {{ "%.2f"|format(valor_total_taxas)|replace(".", ",") }}</div>
+  <p style="color:#666; font-size:13px;">
+    Estes valores são apenas de referência. Registre o pagamento/depósito manualmente na tela
+    "Saída" quando ele for realizado.
+  </p>
+</div>
+{% endblock %}

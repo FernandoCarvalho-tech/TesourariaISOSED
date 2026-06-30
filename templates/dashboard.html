@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Início - Tesouraria ISOSED{% endblock %}
+{% block content %}
+
+<div class="saldo-grid">
+  {% for conta, saldo in saldos %}
+  <div class="saldo-card">
+    <div class="nome">{{ conta.nome }}</div>
+    <div class="valor">R$ {{ "%.2f"|format(saldo)|replace(".", ",") }}</div>
+  </div>
+  {% endfor %}
+  <div class="saldo-card" style="background:#1f5c3f;">
+    <div class="nome" style="color:#cfe3d8;">Saldo Total</div>
+    <div class="valor" style="color:white;">R$ {{ "%.2f"|format(saldo_total)|replace(".", ",") }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Últimas Entradas</h3>
+  <table>
+    <thead><tr><th>Data</th><th>Tipo</th><th>Pessoa</th><th>Conta</th><th>Valor</th><th>Usuário</th></tr></thead>
+    <tbody>
+      {% for e in ultimas_entradas %}
+      <tr>
+        <td data-label="Data">{{ e.data }}</td>
+        <td data-label="Tipo">{{ {'dizimo': 'Dízimo', 'oferta_nominal': 'Oferta Nominal', 'oferta_coletiva': 'Oferta Coletiva'}[e.tipo] }}</td>
+        <td data-label="Pessoa">{{ e.nome_pessoa or '-' }}</td>
+        <td data-label="Conta">{{ e.conta_nome }}</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(e.valor)|replace(".", ",") }}</td>
+        <td data-label="Usuário">{{ e.usuario_nome }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">Nenhuma entrada registrada.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Últimas Saídas</h3>
+  <table>
+    <thead><tr><th>Data</th><th>Motivo</th><th>Conta</th><th>Valor</th><th>Usuário</th></tr></thead>
+    <tbody>
+      {% for s in ultimas_saidas %}
+      <tr>
+        <td data-label="Data">{{ s.data }}</td>
+        <td data-label="Motivo">{{ s.motivo }}</td>
+        <td data-label="Conta">{{ s.conta_nome }}</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(s.valor)|replace(".", ",") }}</td>
+        <td data-label="Usuário">{{ s.usuario_nome }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Nenhuma saída registrada.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

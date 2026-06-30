@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Transferência entre Contas{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Transferência entre Contas</h2>
+  <form method="POST">
+    <div class="row">
+      <div>
+        <label>Conta de origem</label>
+        <select name="conta_origem_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}">{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Conta de destino</label>
+        <select name="conta_destino_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}">{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label>Valor (R$)</label>
+    <input type="text" name="valor" required placeholder="0,00">
+
+    <label>Data</label>
+    <input type="date" name="data" value="{{ hoje }}" required>
+
+    <label>Motivo (opcional)</label>
+    <input type="text" name="motivo" placeholder="Ex: Depósito do cofrinho no banco">
+
+    <button type="submit">Registrar Transferência</button>
+  </form>
+</div>
+{% endblock %}

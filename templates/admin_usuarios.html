@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Usuários{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Novo Usuário</h2>
+  <form method="POST" class="row">
+    <input type="text" name="nome" placeholder="Nome completo" required>
+    <input type="text" name="usuario" placeholder="Usuário (login)" required>
+    <input type="password" name="senha" placeholder="Senha" required>
+    <select name="papel" required>
+      <option value="tesoureiro">Tesoureiro</option>
+      <option value="visualizador">Visualizador</option>
+      <option value="admin">Admin</option>
+    </select>
+    <button type="submit">Criar</button>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>Nome</th><th>Login</th><th>Papel</th><th>Status</th><th>Ação</th></tr></thead>
+    <tbody>
+      {% for u in usuarios %}
+      <tr>
+        <td data-label="Nome">{{ u.nome }}</td>
+        <td data-label="Login">{{ u.usuario }}</td>
+        <td data-label="Papel"><span class="badge {{ u.papel }}">{{ u.papel }}</span></td>
+        <td data-label="Status"><span class="badge {{ 'ativo' if u.ativo else 'inativo' }}">{{ 'Ativo' if u.ativo else 'Inativo' }}</span></td>
+        <td data-label="Ação">
+          {% if u.id != session.get('usuario_id') %}
+          <form method="POST" action="{{ url_for('toggle_usuario', usuario_id=u.id) }}">
+            <button type="submit" class="secondary">{{ 'Desativar' if u.ativo else 'Ativar' }}</button>
+          </form>
+          {% else %}
+          <span style="color:#999;">(você)</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

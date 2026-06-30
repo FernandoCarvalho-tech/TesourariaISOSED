@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Nova Entrada{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Nova Entrada</h2>
+  <form method="POST" id="form-entrada">
+    <label>Tipo</label>
+    <select name="tipo" id="tipo" required onchange="atualizarTipo()">
+      <option value="dizimo">Dízimo</option>
+      <option value="oferta_nominal">Oferta Nominal</option>
+      <option value="oferta_coletiva">Oferta Coletiva (culto)</option>
+    </select>
+
+    <div id="bloco-pessoa">
+      <label>Dizimista cadastrado</label>
+      <select name="dizimista_id">
+        <option value="">-- Selecione (ou digite um nome avulso abaixo) --</option>
+        {% for d in dizimistas %}
+        <option value="{{ d.id }}">{{ d.nome }}</option>
+        {% endfor %}
+      </select>
+      <label>Ou nome avulso (se não cadastrado)</label>
+      <input type="text" name="nome_avulso" placeholder="Nome completo">
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Valor (R$)</label>
+        <input type="text" name="valor" required placeholder="0,00">
+      </div>
+      <div>
+        <label>Conta de destino</label>
+        <select name="conta_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}">{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label>Data</label>
+    <input type="date" name="data" value="{{ hoje }}" required>
+
+    <label>Observação (opcional)</label>
+    <textarea name="observacao" rows="2"></textarea>
+
+    <button type="submit">Registrar Entrada</button>
+  </form>
+</div>
+<script>
+function atualizarTipo() {
+  const tipo = document.getElementById('tipo').value;
+  const bloco = document.getElementById('bloco-pessoa');
+  bloco.style.display = tipo === 'oferta_coletiva' ? 'none' : 'block';
+}
+atualizarTipo();
+</script>
+{% endblock %}

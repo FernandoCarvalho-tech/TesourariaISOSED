@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Nova Saída{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Nova Saída</h2>
+  <form method="POST">
+    <label>Motivo</label>
+    <input type="text" name="motivo" required placeholder="Ex: Conta de luz, água, internet...">
+
+    <div class="row">
+      <div>
+        <label>Valor (R$)</label>
+        <input type="text" name="valor" required placeholder="0,00">
+      </div>
+      <div>
+        <label>Conta de origem</label>
+        <select name="conta_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}">{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label>Data</label>
+    <input type="date" name="data" value="{{ hoje }}" required>
+
+    <label>Observação (opcional)</label>
+    <textarea name="observacao" rows="2"></textarea>
+
+    <button type="submit">Registrar Saída</button>
+  </form>
+</div>
+{% endblock %}
