@@ -410,6 +410,33 @@ def toggle_dizimista(dizimista_id):
     return redirect(url_for("dizimistas"))
 
 
+@app.route("/dizimistas/<int:dizimista_id>/editar", methods=["GET", "POST"])
+@requer_papel("admin")
+def editar_dizimista(dizimista_id):
+    conn = get_conn()
+    if request.method == "POST":
+        nome = request.form.get("nome", "").strip()
+        if nome:
+            conn.execute(
+                "UPDATE dizimistas SET nome = ? WHERE id = ?", (nome, dizimista_id)
+            )
+            conn.commit()
+            flash("Dizimista atualizado.", "success")
+        else:
+            flash("Informe um nome válido.", "error")
+        conn.close()
+        return redirect(url_for("dizimistas"))
+
+    dizimista = conn.execute(
+        "SELECT * FROM dizimistas WHERE id = ?", (dizimista_id,)
+    ).fetchone()
+    conn.close()
+    if not dizimista:
+        flash("Dizimista não encontrado.", "error")
+        return redirect(url_for("dizimistas"))
+    return render_template("editar_dizimista.html", dizimista=dizimista)
+
+
 @app.route("/admin/contas", methods=["GET", "POST"])
 @requer_papel("admin")
 def admin_contas():
@@ -437,6 +464,33 @@ def toggle_conta(conta_id):
     conn.commit()
     conn.close()
     return redirect(url_for("admin_contas"))
+
+
+@app.route("/admin/contas/<int:conta_id>/editar", methods=["GET", "POST"])
+@requer_papel("admin")
+def editar_conta(conta_id):
+    conn = get_conn()
+    if request.method == "POST":
+        nome = request.form.get("nome", "").strip()
+        tipo = request.form.get("tipo")
+        if nome and tipo:
+            conn.execute(
+                "UPDATE contas SET nome = ?, tipo = ? WHERE id = ?",
+                (nome, tipo, conta_id),
+            )
+            conn.commit()
+            flash("Conta atualizada.", "success")
+        else:
+            flash("Preencha nome e tipo.", "error")
+        conn.close()
+        return redirect(url_for("admin_contas"))
+
+    conta = conn.execute("SELECT * FROM contas WHERE id = ?", (conta_id,)).fetchone()
+    conn.close()
+    if not conta:
+        flash("Conta não encontrada.", "error")
+        return redirect(url_for("admin_contas"))
+    return render_template("editar_conta.html", conta=conta)
 
 
 @app.route("/admin/usuarios", methods=["GET", "POST"])

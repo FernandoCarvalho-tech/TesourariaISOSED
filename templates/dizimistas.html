@@ -18,7 +18,10 @@
         <td data-label="Nome">{{ d.nome }}</td>
         <td data-label="Status"><span class="badge {{ 'ativo' if d.ativo else 'inativo' }}">{{ 'Ativo' if d.ativo else 'Inativo' }}</span></td>
         <td data-label="Ação">
-          <form method="POST" action="{{ url_for('toggle_dizimista', dizimista_id=d.id) }}">
+          {% if session.get('papel') == 'admin' %}
+          <a href="{{ url_for('editar_dizimista', dizimista_id=d.id) }}" class="btn secondary">Editar</a>
+          {% endif %}
+          <form method="POST" action="{{ url_for('toggle_dizimista', dizimista_id=d.id) }}" style="display:inline;">
             <button type="submit" class="secondary">{{ 'Desativar' if d.ativo else 'Ativar' }}</button>
           </form>
         </td>

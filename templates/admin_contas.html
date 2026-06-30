@@ -25,7 +25,8 @@
         <td data-label="Tipo">{{ c.tipo }}</td>
         <td data-label="Status"><span class="badge {{ 'ativo' if c.ativo else 'inativo' }}">{{ 'Ativa' if c.ativo else 'Inativa' }}</span></td>
         <td data-label="Ação">
-          <form method="POST" action="{{ url_for('toggle_conta', conta_id=c.id) }}">
+          <a href="{{ url_for('editar_conta', conta_id=c.id) }}" class="btn secondary">Editar</a>
+          <form method="POST" action="{{ url_for('toggle_conta', conta_id=c.id) }}" style="display:inline;">
             <button type="submit" class="secondary">{{ 'Desativar' if c.ativo else 'Ativar' }}</button>
           </form>
         </td>

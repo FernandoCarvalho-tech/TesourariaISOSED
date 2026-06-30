@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Editar Dizimista{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Editar Dizimista</h2>
+  <form method="POST">
+    <label>Nome</label>
+    <input type="text" name="nome" value="{{ dizimista.nome }}" required>
+    <div class="row">
+      <button type="submit">Salvar</button>
+      <a href="{{ url_for('dizimistas') }}" class="btn secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

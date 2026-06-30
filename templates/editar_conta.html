@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Editar Conta{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Editar Conta</h2>
+  <form method="POST">
+    <label>Nome</label>
+    <input type="text" name="nome" value="{{ conta.nome }}" required>
+    <label>Tipo</label>
+    <select name="tipo" required>
+      <option value="dinheiro" {{ 'selected' if conta.tipo == 'dinheiro' else '' }}>Dinheiro</option>
+      <option value="moedas" {{ 'selected' if conta.tipo == 'moedas' else '' }}>Moedas</option>
+      <option value="banco" {{ 'selected' if conta.tipo == 'banco' else '' }}>Banco</option>
+      <option value="outro" {{ 'selected' if conta.tipo == 'outro' else '' }}>Outro</option>
+    </select>
+    <div class="row">
+      <button type="submit">Salvar</button>
+      <a href="{{ url_for('admin_contas') }}" class="btn secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
