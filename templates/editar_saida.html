@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Editar Saída{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Editar Saída</h2>
+  <form method="POST">
+    <label>Motivo</label>
+    <input type="text" name="motivo" value="{{ saida.motivo }}" required>
+
+    <div class="row">
+      <div>
+        <label>Valor (R$)</label>
+        <input type="text" name="valor" value="{{ '%.2f'|format(saida.valor)|replace('.', ',') }}" required>
+      </div>
+      <div>
+        <label>Conta de origem</label>
+        <select name="conta_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}" {{ 'selected' if saida.conta_id == c.id else '' }}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label>Data</label>
+    <input type="date" name="data" value="{{ saida.data }}" required>
+
+    <label>Observação</label>
+    <textarea name="observacao" rows="2">{{ saida.observacao or '' }}</textarea>
+
+    <div class="row">
+      <button type="submit">Salvar alterações</button>
+      <a href="{{ url_for('extrato') }}" class="btn secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

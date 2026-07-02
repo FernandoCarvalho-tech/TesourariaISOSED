@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Editar Transferência{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Editar Transferência</h2>
+  <form method="POST">
+    <div class="row">
+      <div>
+        <label>Conta de origem</label>
+        <select name="conta_origem_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}" {{ 'selected' if transf.conta_origem_id == c.id else '' }}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Conta de destino</label>
+        <select name="conta_destino_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}" {{ 'selected' if transf.conta_destino_id == c.id else '' }}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label>Valor (R$)</label>
+    <input type="text" name="valor" value="{{ '%.2f'|format(transf.valor)|replace('.', ',') }}" required>
+
+    <label>Data</label>
+    <input type="date" name="data" value="{{ transf.data }}" required>
+
+    <label>Motivo (opcional)</label>
+    <input type="text" name="motivo" value="{{ transf.motivo or '' }}">
+
+    <div class="row">
+      <button type="submit">Salvar alterações</button>
+      <a href="{{ url_for('extrato') }}" class="btn secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

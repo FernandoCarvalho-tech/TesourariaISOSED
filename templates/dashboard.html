@@ -9,18 +9,28 @@
     <div class="valor">R$ {{ "%.2f"|format(saldo)|replace(".", ",") }}</div>
   </div>
   {% endfor %}
-  <div class="saldo-card" style="background:#1f5c3f;">
-    <div class="nome" style="color:#cfe3d8;">Saldo Total</div>
+  <div class="saldo-card" style="background:#1a4d8f;">
+    <div class="nome" style="color:#cfe0f5;">Saldo Total</div>
     <div class="valor" style="color:white;">R$ {{ "%.2f"|format(saldo_total)|replace(".", ",") }}</div>
   </div>
 </div>
 
 <div class="card">
-  <h3>Últimas Entradas</h3>
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <h3 style="margin:0;">Movimentações do mês</h3>
+    <form method="GET" style="display:flex; align-items:center; gap:8px;">
+      <input type="month" name="mes" value="{{ mes }}" style="width:auto;">
+      <button type="submit" style="margin-top:0;">Filtrar</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Entradas</h3>
   <table>
     <thead><tr><th>Data</th><th>Tipo</th><th>Pessoa</th><th>Conta</th><th>Valor</th><th>Usuário</th></tr></thead>
     <tbody>
-      {% for e in ultimas_entradas %}
+      {% for e in entradas_mes %}
       <tr>
         <td data-label="Data">{{ e.data }}</td>
         <td data-label="Tipo">{{ {'dizimo': 'Dízimo', 'oferta_nominal': 'Oferta Nominal', 'oferta_coletiva': 'Oferta Coletiva'}[e.tipo] }}</td>
@@ -30,18 +40,18 @@
         <td data-label="Usuário">{{ e.usuario_nome }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6">Nenhuma entrada registrada.</td></tr>
+      <tr><td colspan="6">Nenhuma entrada neste mês.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
 <div class="card">
-  <h3>Últimas Saídas</h3>
+  <h3>Saídas</h3>
   <table>
     <thead><tr><th>Data</th><th>Motivo</th><th>Conta</th><th>Valor</th><th>Usuário</th></tr></thead>
     <tbody>
-      {% for s in ultimas_saidas %}
+      {% for s in saidas_mes %}
       <tr>
         <td data-label="Data">{{ s.data }}</td>
         <td data-label="Motivo">{{ s.motivo }}</td>
@@ -50,7 +60,7 @@
         <td data-label="Usuário">{{ s.usuario_nome }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5">Nenhuma saída registrada.</td></tr>
+      <tr><td colspan="5">Nenhuma saída neste mês.</td></tr>
       {% endfor %}
     </tbody>
   </table>

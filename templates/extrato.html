@@ -30,7 +30,7 @@
 <div class="card">
   <h3>Entradas</h3>
   <table>
-    <thead><tr><th>Data</th><th>Tipo</th><th>Pessoa</th><th>Conta</th><th>Valor</th><th>Usuário</th><th>Lançado em</th></tr></thead>
+    <thead><tr><th>Data</th><th>Tipo</th><th>Pessoa</th><th>Conta</th><th>Valor</th><th>Usuário</th><th>Lançado em</th>{% if session.get('papel') == 'admin' %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for e in entradas %}
       <tr>
@@ -41,9 +41,12 @@
         <td data-label="Valor">R$ {{ "%.2f"|format(e.valor)|replace(".", ",") }}</td>
         <td data-label="Usuário">{{ e.usuario_nome }}</td>
         <td data-label="Lançado em">{{ e.criado_em.strftime("%d/%m/%Y %H:%M") }}</td>
+        {% if session.get('papel') == 'admin' %}
+        <td><a href="{{ url_for('editar_entrada', entrada_id=e.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a></td>
+        {% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="7">Nenhuma entrada encontrada.</td></tr>
+      <tr><td colspan="8">Nenhuma entrada encontrada.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -52,7 +55,7 @@
 <div class="card">
   <h3>Saídas</h3>
   <table>
-    <thead><tr><th>Data</th><th>Motivo</th><th>Conta</th><th>Valor</th><th>Usuário</th><th>Lançado em</th></tr></thead>
+    <thead><tr><th>Data</th><th>Motivo</th><th>Conta</th><th>Valor</th><th>Usuário</th><th>Lançado em</th>{% if session.get('papel') == 'admin' %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for s in saidas %}
       <tr>
@@ -62,9 +65,12 @@
         <td data-label="Valor">R$ {{ "%.2f"|format(s.valor)|replace(".", ",") }}</td>
         <td data-label="Usuário">{{ s.usuario_nome }}</td>
         <td data-label="Lançado em">{{ s.criado_em.strftime("%d/%m/%Y %H:%M") }}</td>
+        {% if session.get('papel') == 'admin' %}
+        <td><a href="{{ url_for('editar_saida', saida_id=s.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a></td>
+        {% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="6">Nenhuma saída encontrada.</td></tr>
+      <tr><td colspan="7">Nenhuma saída encontrada.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -73,7 +79,7 @@
 <div class="card">
   <h3>Transferências</h3>
   <table>
-    <thead><tr><th>Data</th><th>Origem</th><th>Destino</th><th>Valor</th><th>Usuário</th><th>Lançado em</th></tr></thead>
+    <thead><tr><th>Data</th><th>Origem</th><th>Destino</th><th>Valor</th><th>Usuário</th><th>Lançado em</th>{% if session.get('papel') == 'admin' %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for t in transferencias %}
       <tr>
@@ -83,9 +89,12 @@
         <td data-label="Valor">R$ {{ "%.2f"|format(t.valor)|replace(".", ",") }}</td>
         <td data-label="Usuário">{{ t.usuario_nome }}</td>
         <td data-label="Lançado em">{{ t.criado_em.strftime("%d/%m/%Y %H:%M") }}</td>
+        {% if session.get('papel') == 'admin' %}
+        <td><a href="{{ url_for('editar_transferencia', transf_id=t.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a></td>
+        {% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="6">Nenhuma transferência encontrada.</td></tr>
+      <tr><td colspan="7">Nenhuma transferência encontrada.</td></tr>
       {% endfor %}
     </tbody>
   </table>

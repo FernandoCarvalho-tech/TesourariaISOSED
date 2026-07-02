@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Editar Entrada{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Editar Entrada</h2>
+  <form method="POST" id="form-entrada">
+    <label>Tipo</label>
+    <select name="tipo" id="tipo" required onchange="atualizarTipo()">
+      <option value="dizimo" {{ 'selected' if entrada.tipo == 'dizimo' else '' }}>Dízimo</option>
+      <option value="oferta_nominal" {{ 'selected' if entrada.tipo == 'oferta_nominal' else '' }}>Oferta Nominal</option>
+      <option value="oferta_coletiva" {{ 'selected' if entrada.tipo == 'oferta_coletiva' else '' }}>Oferta Coletiva (culto)</option>
+    </select>
+
+    <div id="bloco-pessoa">
+      <label>Dizimista cadastrado</label>
+      <select name="dizimista_id">
+        <option value="">-- Selecione (ou digite um nome avulso abaixo) --</option>
+        {% for d in dizimistas %}
+        <option value="{{ d.id }}" {{ 'selected' if entrada.dizimista_id == d.id else '' }}>{{ d.nome }}</option>
+        {% endfor %}
+      </select>
+      <label>Ou nome avulso (se não cadastrado)</label>
+      <input type="text" name="nome_avulso" value="{{ entrada.nome_avulso or '' }}" placeholder="Nome completo">
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Valor (R$)</label>
+        <input type="text" name="valor" value="{{ '%.2f'|format(entrada.valor)|replace('.', ',') }}" required>
+      </div>
+      <div>
+        <label>Conta de destino</label>
+        <select name="conta_id" required>
+          {% for c in contas %}
+          <option value="{{ c.id }}" {{ 'selected' if entrada.conta_id == c.id else '' }}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label>Data</label>
+    <input type="date" name="data" value="{{ entrada.data }}" required>
+
+    <label>Observação</label>
+    <textarea name="observacao" rows="2">{{ entrada.observacao or '' }}</textarea>
+
+    <div class="row">
+      <button type="submit">Salvar alterações</button>
+      <a href="{{ url_for('extrato') }}" class="btn secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+<script>
+function atualizarTipo() {
+  const tipo = document.getElementById('tipo').value;
+  document.getElementById('bloco-pessoa').style.display =
+    tipo === 'oferta_coletiva' ? 'none' : 'block';
+}
+atualizarTipo();
+</script>
+{% endblock %}

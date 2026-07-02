@@ -2,8 +2,13 @@
 {% block title %}Fechamento Mensal{% endblock %}
 {% block content %}
 <div class="card">
-  <h2>Fechamento Mensal</h2>
-  <form method="GET" class="row">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <h2 style="margin:0;">Fechamento Mensal</h2>
+    <a href="{{ url_for('fechamento_pdf', mes=mes) }}" class="btn" style="background:#e8650f; margin-top:0;">
+      ⬇ Exportar PDF
+    </a>
+  </div>
+  <form method="GET" class="row" style="margin-top:12px;">
     <div>
       <label>Mês de referência</label>
       <input type="month" name="mes" value="{{ mes }}">
@@ -15,9 +20,7 @@
 </div>
 
 <div class="card">
-  <h3>Total Bruto de Entradas no Mês</h3>
-  <div class="total-box">R$ {{ "%.2f"|format(total_bruto)|replace(".", ",") }}</div>
-
+  <h3>Resumo</h3>
   <table>
     <thead><tr><th>Destino</th><th>% sobre o bruto</th><th>Valor a repassar</th></tr></thead>
     <tbody>
@@ -38,10 +41,67 @@
       </tr>
     </tbody>
   </table>
-  <div class="total-box">Total das taxas (23%): R$ {{ "%.2f"|format(valor_total_taxas)|replace(".", ",") }}</div>
-  <p style="color:#666; font-size:13px;">
-    Estes valores são apenas de referência. Registre o pagamento/depósito manualmente na tela
-    "Saída" quando ele for realizado.
+
+  <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:14px;">
+    <div class="saldo-card" style="background:#eef3fb;">
+      <div class="nome">Total Bruto Entradas</div>
+      <div class="valor" style="color:#1a4d8f;">R$ {{ "%.2f"|format(total_bruto)|replace(".", ",") }}</div>
+    </div>
+    <div class="saldo-card" style="background:#fde8d8;">
+      <div class="nome">Total Saídas</div>
+      <div class="valor" style="color:#e8650f;">R$ {{ "%.2f"|format(total_saidas)|replace(".", ",") }}</div>
+    </div>
+    <div class="saldo-card" style="background:#fde8d8;">
+      <div class="nome">Total Taxas (23%)</div>
+      <div class="valor" style="color:#c0392b;">R$ {{ "%.2f"|format(valor_total_taxas)|replace(".", ",") }}</div>
+    </div>
+    {% set saldo_mes = total_bruto - total_saidas %}
+    <div class="saldo-card" style="background:{{ '#d4efdf' if saldo_mes >= 0 else '#fadbd8' }};">
+      <div class="nome">Saldo do Mês</div>
+      <div class="valor" style="color:{{ '#196f3d' if saldo_mes >= 0 else '#c0392b' }};">R$ {{ "%.2f"|format(saldo_mes)|replace(".", ",") }}</div>
+    </div>
+  </div>
+  <p style="color:#888; font-size:13px; margin-top:10px;">
+    Os valores de repasse são apenas de referência — registre o pagamento manualmente em "Saída" quando realizado.
   </p>
+</div>
+
+<div class="card">
+  <h3>Entradas do mês</h3>
+  <table>
+    <thead><tr><th>Data</th><th>Tipo</th><th>Pessoa</th><th>Conta</th><th>Valor</th></tr></thead>
+    <tbody>
+      {% for e in entradas %}
+      <tr>
+        <td data-label="Data">{{ e.data }}</td>
+        <td data-label="Tipo">{{ {'dizimo': 'Dízimo', 'oferta_nominal': 'Oferta Nominal', 'oferta_coletiva': 'Oferta Coletiva'}[e.tipo] }}</td>
+        <td data-label="Pessoa">{{ e.nome_pessoa or '-' }}</td>
+        <td data-label="Conta">{{ e.conta_nome }}</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(e.valor)|replace(".", ",") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Nenhuma entrada neste mês.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Saídas do mês</h3>
+  <table>
+    <thead><tr><th>Data</th><th>Motivo</th><th>Conta</th><th>Valor</th></tr></thead>
+    <tbody>
+      {% for s in saidas %}
+      <tr>
+        <td data-label="Data">{{ s.data }}</td>
+        <td data-label="Motivo">{{ s.motivo }}</td>
+        <td data-label="Conta">{{ s.conta_nome }}</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(s.valor)|replace(".", ",") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Nenhuma saída neste mês.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endblock %}

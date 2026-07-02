@@ -1,9 +1,18 @@
+import io
 import os
 from datetime import date
 from functools import wraps
 
 from flask import (
-    Flask, render_template, request, redirect, url_for, flash, session, jsonify
+    Flask, render_template, request, redirect, url_for, flash, session, jsonify,
+    make_response,
+)
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -102,34 +111,42 @@ def _saldo_conta(conn, conta_id):
 
 @app.route("/")
 def dashboard():
+    hoje = date.today()
+    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
+
     conn = get_conn()
     contas = _contas_ativas(conn)
     saldos = [(c, _saldo_conta(conn, c["id"])) for c in contas]
     saldo_total = sum(s for _, s in saldos)
 
-    ultimas_entradas = conn.execute(
+    entradas_mes = conn.execute(
         """SELECT e.*, c.nome AS conta_nome, u.nome AS usuario_nome,
                   COALESCE(d.nome, e.nome_avulso) AS nome_pessoa
            FROM entradas e
            JOIN contas c ON c.id = e.conta_id
            JOIN usuarios u ON u.id = e.usuario_id
            LEFT JOIN dizimistas d ON d.id = e.dizimista_id
-           ORDER BY e.criado_em DESC LIMIT 5"""
+           WHERE to_char(e.data,'YYYY-MM') = ?
+           ORDER BY e.data DESC, e.criado_em DESC""",
+        (mes,),
     ).fetchall()
-    ultimas_saidas = conn.execute(
+    saidas_mes = conn.execute(
         """SELECT s.*, c.nome AS conta_nome, u.nome AS usuario_nome
            FROM saidas s
            JOIN contas c ON c.id = s.conta_id
            JOIN usuarios u ON u.id = s.usuario_id
-           ORDER BY s.criado_em DESC LIMIT 5"""
+           WHERE to_char(s.data,'YYYY-MM') = ?
+           ORDER BY s.data DESC, s.criado_em DESC""",
+        (mes,),
     ).fetchall()
     conn.close()
     return render_template(
         "dashboard.html",
         saldos=saldos,
         saldo_total=saldo_total,
-        ultimas_entradas=ultimas_entradas,
-        ultimas_saidas=ultimas_saidas,
+        entradas_mes=entradas_mes,
+        saidas_mes=saidas_mes,
+        mes=mes,
     )
 
 
@@ -180,6 +197,49 @@ def nova_entrada():
     )
 
 
+@app.route("/entradas/<int:entrada_id>/editar", methods=["GET", "POST"])
+@requer_papel("admin")
+def editar_entrada(entrada_id):
+    conn = get_conn()
+    if request.method == "POST":
+        tipo = request.form.get("tipo")
+        dizimista_id = request.form.get("dizimista_id") or None
+        nome_avulso = request.form.get("nome_avulso", "").strip() or None
+        valor = request.form.get("valor", "0").replace(",", ".")
+        conta_id = request.form.get("conta_id")
+        data_lanc = request.form.get("data")
+        observacao = request.form.get("observacao", "").strip() or None
+        if tipo == "oferta_coletiva":
+            dizimista_id = None
+            nome_avulso = None
+        try:
+            valor_f = float(valor)
+            if valor_f <= 0:
+                raise ValueError
+        except ValueError:
+            flash("Valor inválido.", "error")
+            return redirect(url_for("editar_entrada", entrada_id=entrada_id))
+        conn.execute(
+            """UPDATE entradas SET tipo=?, dizimista_id=?, nome_avulso=?, valor=?,
+               conta_id=?, data=?, observacao=? WHERE id=?""",
+            (tipo, dizimista_id, nome_avulso, valor_f, conta_id, data_lanc, observacao, entrada_id),
+        )
+        conn.commit()
+        conn.close()
+        flash("Entrada atualizada com sucesso.", "success")
+        return redirect(url_for("extrato"))
+
+    entrada = conn.execute("SELECT * FROM entradas WHERE id=?", (entrada_id,)).fetchone()
+    if not entrada:
+        conn.close()
+        flash("Entrada não encontrada.", "error")
+        return redirect(url_for("extrato"))
+    contas = _contas_ativas(conn)
+    dizimistas = conn.execute("SELECT * FROM dizimistas WHERE ativo=TRUE ORDER BY nome").fetchall()
+    conn.close()
+    return render_template("editar_entrada.html", entrada=entrada, contas=contas, dizimistas=dizimistas)
+
+
 @app.route("/saidas/nova", methods=["GET", "POST"])
 @requer_papel("admin", "tesoureiro")
 def nova_saida():
@@ -216,6 +276,42 @@ def nova_saida():
     contas = _contas_ativas(conn)
     conn.close()
     return render_template("nova_saida.html", contas=contas, hoje=date.today().isoformat())
+
+
+@app.route("/saidas/<int:saida_id>/editar", methods=["GET", "POST"])
+@requer_papel("admin")
+def editar_saida(saida_id):
+    conn = get_conn()
+    if request.method == "POST":
+        motivo = request.form.get("motivo", "").strip()
+        valor = request.form.get("valor", "0").replace(",", ".")
+        conta_id = request.form.get("conta_id")
+        data_lanc = request.form.get("data")
+        observacao = request.form.get("observacao", "").strip() or None
+        try:
+            valor_f = float(valor)
+            if valor_f <= 0 or not motivo:
+                raise ValueError
+        except ValueError:
+            flash("Preencha motivo e um valor válido.", "error")
+            return redirect(url_for("editar_saida", saida_id=saida_id))
+        conn.execute(
+            "UPDATE saidas SET motivo=?, valor=?, conta_id=?, data=?, observacao=? WHERE id=?",
+            (motivo, valor_f, conta_id, data_lanc, observacao, saida_id),
+        )
+        conn.commit()
+        conn.close()
+        flash("Saída atualizada com sucesso.", "success")
+        return redirect(url_for("extrato"))
+
+    saida = conn.execute("SELECT * FROM saidas WHERE id=?", (saida_id,)).fetchone()
+    if not saida:
+        conn.close()
+        flash("Saída não encontrada.", "error")
+        return redirect(url_for("extrato"))
+    contas = _contas_ativas(conn)
+    conn.close()
+    return render_template("editar_saida.html", saida=saida, contas=contas)
 
 
 @app.route("/transferencias/nova", methods=["GET", "POST"])
@@ -255,6 +351,43 @@ def nova_transferencia():
     contas = _contas_ativas(conn)
     conn.close()
     return render_template("nova_transferencia.html", contas=contas, hoje=date.today().isoformat())
+
+
+@app.route("/transferencias/<int:transf_id>/editar", methods=["GET", "POST"])
+@requer_papel("admin")
+def editar_transferencia(transf_id):
+    conn = get_conn()
+    if request.method == "POST":
+        origem = request.form.get("conta_origem_id")
+        destino = request.form.get("conta_destino_id")
+        valor = request.form.get("valor", "0").replace(",", ".")
+        data_lanc = request.form.get("data")
+        motivo = request.form.get("motivo", "").strip() or None
+        try:
+            valor_f = float(valor)
+            if valor_f <= 0 or origem == destino:
+                raise ValueError
+        except ValueError:
+            flash("Verifique os valores: contas devem ser diferentes e valor maior que zero.", "error")
+            return redirect(url_for("editar_transferencia", transf_id=transf_id))
+        conn.execute(
+            """UPDATE transferencias SET conta_origem_id=?, conta_destino_id=?,
+               valor=?, data=?, motivo=? WHERE id=?""",
+            (origem, destino, valor_f, data_lanc, motivo, transf_id),
+        )
+        conn.commit()
+        conn.close()
+        flash("Transferência atualizada com sucesso.", "success")
+        return redirect(url_for("extrato"))
+
+    transf = conn.execute("SELECT * FROM transferencias WHERE id=?", (transf_id,)).fetchone()
+    if not transf:
+        conn.close()
+        flash("Transferência não encontrada.", "error")
+        return redirect(url_for("extrato"))
+    contas = _contas_ativas(conn)
+    conn.close()
+    return render_template("editar_transferencia.html", transf=transf, contas=contas)
 
 
 @app.route("/extrato")
@@ -346,30 +479,41 @@ def extrato():
     )
 
 
-@app.route("/fechamento")
-def fechamento():
+def _dados_fechamento(mes):
+    """Retorna dict com todos os dados do fechamento de um mês."""
     conn = get_conn()
-    hoje = date.today()
-    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
-    ano, mes_num = mes.split("-")
-    data_ini = f"{ano}-{mes_num}-01"
-
-    total_bruto = conn.execute(
-        "SELECT COALESCE(SUM(valor),0) AS total FROM entradas WHERE to_char(data,'YYYY-MM') = ?",
+    entradas = conn.execute(
+        """SELECT e.*, c.nome AS conta_nome, COALESCE(d.nome, e.nome_avulso) AS nome_pessoa
+           FROM entradas e
+           JOIN contas c ON c.id = e.conta_id
+           LEFT JOIN dizimistas d ON d.id = e.dizimista_id
+           WHERE to_char(e.data,'YYYY-MM') = ?
+           ORDER BY e.data, e.criado_em""",
         (mes,),
-    ).fetchone()["total"]
-    total_bruto = float(total_bruto)
+    ).fetchall()
+    saidas = conn.execute(
+        """SELECT s.*, c.nome AS conta_nome
+           FROM saidas s
+           JOIN contas c ON c.id = s.conta_id
+           WHERE to_char(s.data,'YYYY-MM') = ?
+           ORDER BY s.data, s.criado_em""",
+        (mes,),
+    ).fetchall()
+    conn.close()
 
+    total_bruto = sum(float(e["valor"]) for e in entradas)
+    total_saidas = sum(float(s["valor"]) for s in saidas)
     valor_sede = total_bruto * TAXA_SEDE
     valor_fundo = total_bruto * TAXA_FUNDO
     valor_regional = total_bruto * TAXA_REGIONAL
     valor_total_taxas = valor_sede + valor_fundo + valor_regional
 
-    conn.close()
-    return render_template(
-        "fechamento.html",
+    return dict(
         mes=mes,
+        entradas=entradas,
+        saidas=saidas,
         total_bruto=total_bruto,
+        total_saidas=total_saidas,
         valor_sede=valor_sede,
         valor_fundo=valor_fundo,
         valor_regional=valor_regional,
@@ -378,6 +522,181 @@ def fechamento():
         taxa_fundo=TAXA_FUNDO,
         taxa_regional=TAXA_REGIONAL,
     )
+
+
+@app.route("/fechamento")
+def fechamento():
+    hoje = date.today()
+    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
+    dados = _dados_fechamento(mes)
+    return render_template("fechamento.html", **dados)
+
+
+@app.route("/fechamento/pdf")
+def fechamento_pdf():
+    hoje = date.today()
+    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
+    dados = _dados_fechamento(mes)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    azul = colors.HexColor("#1a4d8f")
+    verde = colors.HexColor("#2e8b3a")
+    laranja = colors.HexColor("#e8650f")
+
+    titulo_style = ParagraphStyle("titulo", parent=styles["Title"],
+                                  fontSize=16, textColor=azul, spaceAfter=4)
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"],
+                               fontSize=10, textColor=colors.grey, spaceAfter=12)
+    secao_style = ParagraphStyle("secao", parent=styles["Heading2"],
+                                 fontSize=12, textColor=azul, spaceBefore=12, spaceAfter=4)
+
+    MESES_PT = {
+        "01": "Janeiro","02": "Fevereiro","03": "Março","04": "Abril",
+        "05": "Maio","06": "Junho","07": "Julho","08": "Agosto",
+        "09": "Setembro","10": "Outubro","11": "Novembro","12": "Dezembro",
+    }
+    ano, mes_num = mes.split("-")
+    mes_label = f"{MESES_PT[mes_num]}/{ano}"
+
+    TIPO_LABEL = {
+        "dizimo": "Dízimo",
+        "oferta_nominal": "Oferta Nominal",
+        "oferta_coletiva": "Oferta Coletiva",
+    }
+
+    def fmt(v):
+        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    story = []
+    story.append(Paragraph("TESOURARIA ISOSED", titulo_style))
+    story.append(Paragraph(f"Fechamento Mensal — {mes_label}", sub_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=azul))
+    story.append(Spacer(1, 0.4*cm))
+
+    # --- Entradas ---
+    story.append(Paragraph("Entradas", secao_style))
+    e_data = [["Data", "Tipo", "Pessoa/Descrição", "Conta", "Valor"]]
+    for e in dados["entradas"]:
+        e_data.append([
+            str(e["data"]),
+            TIPO_LABEL.get(e["tipo"], e["tipo"]),
+            e["nome_pessoa"] or "-",
+            e["conta_nome"],
+            fmt(float(e["valor"])),
+        ])
+    e_data.append(["", "", "", "TOTAL", fmt(dados["total_bruto"])])
+
+    t_e = Table(e_data, colWidths=[2.2*cm, 3.5*cm, 5.5*cm, 3*cm, 2.8*cm])
+    t_e.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), azul),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("FONTSIZE", (0, 1), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#eef3fb")]),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#d4e8d4")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t_e)
+    story.append(Spacer(1, 0.5*cm))
+
+    # --- Saídas ---
+    story.append(Paragraph("Saídas", secao_style))
+    s_data = [["Data", "Motivo", "Conta", "Valor"]]
+    for s in dados["saidas"]:
+        s_data.append([
+            str(s["data"]),
+            s["motivo"],
+            s["conta_nome"],
+            fmt(float(s["valor"])),
+        ])
+    s_data.append(["", "", "TOTAL", fmt(dados["total_saidas"])])
+
+    t_s = Table(s_data, colWidths=[2.2*cm, 8.5*cm, 3*cm, 2.8*cm])
+    t_s.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), azul),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("FONTSIZE", (0, 1), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#eef3fb")]),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fde8d8")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t_s)
+    story.append(Spacer(1, 0.5*cm))
+
+    # --- Taxas ---
+    story.append(Paragraph("Repasses às Sedes", secao_style))
+    taxas_data = [
+        ["Destino", "% sobre Bruto", "Valor"],
+        ["Sede Mundial (Maringá)", f"{int(TAXA_SEDE*100)}%", fmt(dados["valor_sede"])],
+        ["Fundo (Sede Mundial)", f"{int(TAXA_FUNDO*100)}%", fmt(dados["valor_fundo"])],
+        ["Sede Regional (Francisco Beltrão)", f"{int(TAXA_REGIONAL*100)}%", fmt(dados["valor_regional"])],
+        ["TOTAL DAS TAXAS (23%)", "", fmt(dados["valor_total_taxas"])],
+    ]
+    t_t = Table(taxas_data, colWidths=[9*cm, 3*cm, 3*cm])
+    t_t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), azul),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
+        ("BACKGROUND", (0, -1), (-1, -1), laranja),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
+        ("ALIGN", (1, 0), (1, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(t_t)
+    story.append(Spacer(1, 0.4*cm))
+
+    saldo_mes = dados["total_bruto"] - dados["total_saidas"]
+    resumo_data = [
+        ["Total Bruto Entradas", fmt(dados["total_bruto"])],
+        ["Total Saídas", fmt(dados["total_saidas"])],
+        ["Saldo do Mês", fmt(saldo_mes)],
+    ]
+    t_r = Table(resumo_data, colWidths=[9*cm, 6*cm])
+    t_r.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("BACKGROUND", (0, -1), (-1, -1), verde if saldo_mes >= 0 else colors.HexColor("#fadbd8")),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white if saldo_mes >= 0 else colors.HexColor("#922b21")),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.5, azul),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(t_r)
+
+    story.append(Spacer(1, 0.6*cm))
+    story.append(Paragraph(
+        f"Emitido em {date.today().strftime('%d/%m/%Y')} por {session.get('usuario_nome', '')}",
+        ParagraphStyle("rodape", parent=styles["Normal"], fontSize=8, textColor=colors.grey),
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+    resp = make_response(buf.read())
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = f"attachment; filename=fechamento_{mes}.pdf"
+    return resp
 
 
 @app.route("/dizimistas", methods=["GET", "POST"])
