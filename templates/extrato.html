@@ -28,6 +28,32 @@
 </div>
 
 <div class="card">
+  <h3>Totalizador (período filtrado)</h3>
+  <div class="saldo-grid">
+    <div class="saldo-card" style="border-left:4px solid #1a4d8f;">
+      <div class="nome">Dízimos</div>
+      <div class="valor" style="color:#1a4d8f;">R$ {{ "%.2f"|format(totais_entradas.dizimo)|replace(".", ",") }}</div>
+    </div>
+    <div class="saldo-card" style="border-left:4px solid #2e8b3a;">
+      <div class="nome">Ofertas Nominais</div>
+      <div class="valor" style="color:#2e8b3a;">R$ {{ "%.2f"|format(totais_entradas.oferta_nominal)|replace(".", ",") }}</div>
+    </div>
+    <div class="saldo-card" style="border-left:4px solid #2e8b3a;">
+      <div class="nome">Ofertas Coletivas</div>
+      <div class="valor" style="color:#2e8b3a;">R$ {{ "%.2f"|format(totais_entradas.oferta_coletiva)|replace(".", ",") }}</div>
+    </div>
+    <div class="saldo-card" style="border-left:4px solid #e8650f;">
+      <div class="nome">Total Entradas</div>
+      <div class="valor" style="color:#e8650f;">R$ {{ "%.2f"|format(totais_entradas.total_bruto)|replace(".", ",") }}</div>
+    </div>
+    <div class="saldo-card" style="border-left:4px solid #c0392b;">
+      <div class="nome">Total Saídas</div>
+      <div class="valor" style="color:#c0392b;">R$ {{ "%.2f"|format(total_saidas)|replace(".", ",") }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
   <h3>Entradas</h3>
   <table>
     <thead><tr><th>Data</th><th>Tipo</th><th>Pessoa</th><th>Conta</th><th>Valor</th><th>Usuário</th><th>Lançado em</th>{% if session.get('papel') == 'admin' %}<th></th>{% endif %}</tr></thead>

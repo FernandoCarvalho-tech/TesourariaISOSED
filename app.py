@@ -91,6 +91,16 @@ def _contas_ativas(conn):
     return conn.execute("SELECT * FROM contas WHERE ativo=TRUE ORDER BY nome").fetchall()
 
 
+def _totais_por_tipo(entradas):
+    """Recebe lista de rows de entradas e retorna dict com totais por tipo e o bruto geral."""
+    totais = {"dizimo": 0.0, "oferta_nominal": 0.0, "oferta_coletiva": 0.0}
+    for e in entradas:
+        totais[e["tipo"]] = totais.get(e["tipo"], 0.0) + float(e["valor"])
+    totais["total_ofertas"] = totais["oferta_nominal"] + totais["oferta_coletiva"]
+    totais["total_bruto"] = totais["dizimo"] + totais["total_ofertas"]
+    return totais
+
+
 def _saldo_conta(conn, conta_id):
     entradas = conn.execute(
         "SELECT COALESCE(SUM(valor),0) AS total FROM entradas WHERE conta_id=?", (conta_id,)
@@ -139,6 +149,8 @@ def dashboard():
            ORDER BY s.data DESC, s.criado_em DESC""",
         (mes,),
     ).fetchall()
+    totais_entradas = _totais_por_tipo(entradas_mes)
+    total_saidas_mes = sum(float(s["valor"]) for s in saidas_mes)
     conn.close()
     return render_template(
         "dashboard.html",
@@ -146,6 +158,8 @@ def dashboard():
         saldo_total=saldo_total,
         entradas_mes=entradas_mes,
         saidas_mes=saidas_mes,
+        totais_entradas=totais_entradas,
+        total_saidas_mes=total_saidas_mes,
         mes=mes,
     )
 
@@ -466,6 +480,8 @@ def extrato():
         params_transf,
     ).fetchall()
 
+    totais_entradas = _totais_por_tipo(entradas)
+    total_saidas = sum(float(s["valor"]) for s in saidas)
     conn.close()
     return render_template(
         "extrato.html",
@@ -473,6 +489,8 @@ def extrato():
         entradas=entradas,
         saidas=saidas,
         transferencias=transferencias,
+        totais_entradas=totais_entradas,
+        total_saidas=total_saidas,
         conta_id=conta_id,
         data_ini=data_ini,
         data_fim=data_fim,
@@ -508,12 +526,15 @@ def _dados_fechamento(mes):
     valor_regional = total_bruto * TAXA_REGIONAL
     valor_total_taxas = valor_sede + valor_fundo + valor_regional
 
+    totais_entradas = _totais_por_tipo(entradas)
+
     return dict(
         mes=mes,
         entradas=entradas,
         saidas=saidas,
         total_bruto=total_bruto,
         total_saidas=total_saidas,
+        totais_entradas=totais_entradas,
         valor_sede=valor_sede,
         valor_fundo=valor_fundo,
         valor_regional=valor_regional,
