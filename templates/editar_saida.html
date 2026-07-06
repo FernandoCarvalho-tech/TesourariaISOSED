@@ -4,7 +4,14 @@
 <div class="card">
   <h2>Editar Saída</h2>
   <form method="POST">
-    <label>Motivo</label>
+    <label>Categoria</label>
+    <select name="categoria" required>
+      {% for cat in categorias %}
+      <option value="{{ cat }}" {{ 'selected' if saida.categoria == cat else '' }}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Descrição / Detalhe</label>
     <input type="text" name="motivo" value="{{ saida.motivo }}" required>
 
     <div class="row">

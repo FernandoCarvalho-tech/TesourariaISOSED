@@ -81,12 +81,13 @@
 <div class="card">
   <h3>Saídas</h3>
   <table>
-    <thead><tr><th>Data</th><th>Motivo</th><th>Conta</th><th>Valor</th><th>Usuário</th><th>Lançado em</th>{% if session.get('papel') == 'admin' %}<th></th>{% endif %}</tr></thead>
+    <thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Conta</th><th>Valor</th><th>Usuário</th><th>Lançado em</th>{% if session.get('papel') == 'admin' %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for s in saidas %}
       <tr>
         <td data-label="Data">{{ s.data }}</td>
-        <td data-label="Motivo">{{ s.motivo }}</td>
+        <td data-label="Categoria">{{ s.categoria }}</td>
+        <td data-label="Descrição">{{ s.motivo }}</td>
         <td data-label="Conta">{{ s.conta_nome }}</td>
         <td data-label="Valor">R$ {{ "%.2f"|format(s.valor)|replace(".", ",") }}</td>
         <td data-label="Usuário">{{ s.usuario_nome }}</td>

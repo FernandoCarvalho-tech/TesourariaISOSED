@@ -109,19 +109,42 @@
 </div>
 
 <div class="card">
-  <h3>Saídas do mês</h3>
+  <h3>Despesas por Categoria</h3>
   <table>
-    <thead><tr><th>Data</th><th>Motivo</th><th>Conta</th><th>Valor</th></tr></thead>
+    <thead><tr><th>Categoria</th><th style="text-align:right;">Total</th></tr></thead>
+    <tbody>
+      {% for cat in categorias_saida %}
+      {% set val = totais_categorias[cat] %}
+      {% if val > 0 %}
+      <tr>
+        <td data-label="Categoria">{{ cat }}</td>
+        <td data-label="Total" style="text-align:right;">R$ {{ "%.2f"|format(val)|replace(".", ",") }}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+      <tr style="font-weight:bold; background:#fde8d8;">
+        <td data-label="Categoria">TOTAL SAÍDAS</td>
+        <td data-label="Total" style="text-align:right;">R$ {{ "%.2f"|format(total_saidas)|replace(".", ",") }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Saídas do mês (detalhado)</h3>
+  <table>
+    <thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Conta</th><th>Valor</th></tr></thead>
     <tbody>
       {% for s in saidas %}
       <tr>
         <td data-label="Data">{{ s.data }}</td>
-        <td data-label="Motivo">{{ s.motivo }}</td>
+        <td data-label="Categoria">{{ s.categoria }}</td>
+        <td data-label="Descrição">{{ s.motivo }}</td>
         <td data-label="Conta">{{ s.conta_nome }}</td>
         <td data-label="Valor">R$ {{ "%.2f"|format(s.valor)|replace(".", ",") }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="4">Nenhuma saída neste mês.</td></tr>
+      <tr><td colspan="5">Nenhuma saída neste mês.</td></tr>
       {% endfor %}
     </tbody>
   </table>

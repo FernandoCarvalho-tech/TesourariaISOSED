@@ -119,6 +119,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS saidas (
             id SERIAL PRIMARY KEY,
+            categoria TEXT NOT NULL DEFAULT 'OUTROS',
             motivo TEXT NOT NULL,
             valor NUMERIC(12, 2) NOT NULL,
             conta_id INTEGER NOT NULL REFERENCES contas (id),
@@ -128,6 +129,7 @@ def init_db():
             criado_em TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
+    cur.execute("ALTER TABLE saidas ADD COLUMN IF NOT EXISTS categoria TEXT NOT NULL DEFAULT 'OUTROS'")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS transferencias (

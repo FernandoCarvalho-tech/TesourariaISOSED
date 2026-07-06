@@ -4,8 +4,15 @@
 <div class="card">
   <h2>Nova Saída</h2>
   <form method="POST">
-    <label>Motivo</label>
-    <input type="text" name="motivo" required placeholder="Ex: Conta de luz, água, internet...">
+    <label>Categoria</label>
+    <select name="categoria" required>
+      {% for cat in categorias %}
+      <option value="{{ cat }}">{{ cat }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Descrição / Detalhe</label>
+    <input type="text" name="motivo" required placeholder="Ex: Conta de luz do mês de junho">
 
     <div class="row">
       <div>

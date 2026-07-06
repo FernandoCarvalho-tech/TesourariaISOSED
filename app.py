@@ -25,6 +25,21 @@ TAXA_SEDE = 0.15
 TAXA_FUNDO = 0.03
 TAXA_REGIONAL = 0.05
 
+CATEGORIAS_SAIDA = [
+    "ALUGUEL",
+    "PROGRAMA DE RÁDIO",
+    "ÁGUA E ENERGIA ELÉTRICA",
+    "TELEFONE",
+    "CORREIO E XEROX (CÓPIAS)",
+    "DESPESAS DE VIAGEM E COMBUSTÍVEL",
+    "REALIZAÇÃO DE EVENTOS",
+    "REALIZAÇÃO DA SANTA CEIA",
+    "CONSERVAÇÃO E REPARO DA IGREJA",
+    "AQUISIÇÃO DE BENS E MATERIAIS",
+    "PORCENTAGEM PARA SEDE",
+    "OUTROS",
+]
+
 with app.app_context():
     init_db()
 
@@ -259,24 +274,27 @@ def editar_entrada(entrada_id):
 def nova_saida():
     conn = get_conn()
     if request.method == "POST":
+        categoria = request.form.get("categoria", "OUTROS")
         motivo = request.form.get("motivo", "").strip()
         valor = request.form.get("valor", "0").replace(",", ".")
         conta_id = request.form.get("conta_id")
         data_lanc = request.form.get("data") or date.today().isoformat()
         observacao = request.form.get("observacao", "").strip() or None
 
+        if categoria not in CATEGORIAS_SAIDA:
+            categoria = "OUTROS"
         try:
             valor_f = float(valor)
             if valor_f <= 0 or not motivo:
                 raise ValueError
         except ValueError:
-            flash("Preencha motivo e um valor válido.", "error")
+            flash("Preencha a descrição e um valor válido.", "error")
             return redirect(url_for("nova_saida"))
 
         conn.execute(
-            """INSERT INTO saidas (motivo, valor, conta_id, data, observacao, usuario_id)
-               VALUES (?,?,?,?,?,?)""",
-            (motivo, valor_f, conta_id, data_lanc, observacao, session["usuario_id"]),
+            """INSERT INTO saidas (categoria, motivo, valor, conta_id, data, observacao, usuario_id)
+               VALUES (?,?,?,?,?,?,?)""",
+            (categoria, motivo, valor_f, conta_id, data_lanc, observacao, session["usuario_id"]),
         )
         conn.commit()
         saldo_atual = _saldo_conta(conn, conta_id)
@@ -289,7 +307,7 @@ def nova_saida():
 
     contas = _contas_ativas(conn)
     conn.close()
-    return render_template("nova_saida.html", contas=contas, hoje=date.today().isoformat())
+    return render_template("nova_saida.html", contas=contas, categorias=CATEGORIAS_SAIDA, hoje=date.today().isoformat())
 
 
 @app.route("/saidas/<int:saida_id>/editar", methods=["GET", "POST"])
@@ -297,21 +315,24 @@ def nova_saida():
 def editar_saida(saida_id):
     conn = get_conn()
     if request.method == "POST":
+        categoria = request.form.get("categoria", "OUTROS")
         motivo = request.form.get("motivo", "").strip()
         valor = request.form.get("valor", "0").replace(",", ".")
         conta_id = request.form.get("conta_id")
         data_lanc = request.form.get("data")
         observacao = request.form.get("observacao", "").strip() or None
+        if categoria not in CATEGORIAS_SAIDA:
+            categoria = "OUTROS"
         try:
             valor_f = float(valor)
             if valor_f <= 0 or not motivo:
                 raise ValueError
         except ValueError:
-            flash("Preencha motivo e um valor válido.", "error")
+            flash("Preencha a descrição e um valor válido.", "error")
             return redirect(url_for("editar_saida", saida_id=saida_id))
         conn.execute(
-            "UPDATE saidas SET motivo=?, valor=?, conta_id=?, data=?, observacao=? WHERE id=?",
-            (motivo, valor_f, conta_id, data_lanc, observacao, saida_id),
+            "UPDATE saidas SET categoria=?, motivo=?, valor=?, conta_id=?, data=?, observacao=? WHERE id=?",
+            (categoria, motivo, valor_f, conta_id, data_lanc, observacao, saida_id),
         )
         conn.commit()
         conn.close()
@@ -325,7 +346,7 @@ def editar_saida(saida_id):
         return redirect(url_for("extrato"))
     contas = _contas_ativas(conn)
     conn.close()
-    return render_template("editar_saida.html", saida=saida, contas=contas)
+    return render_template("editar_saida.html", saida=saida, contas=contas, categorias=CATEGORIAS_SAIDA)
 
 
 @app.route("/transferencias/nova", methods=["GET", "POST"])
@@ -528,6 +549,13 @@ def _dados_fechamento(mes):
 
     totais_entradas = _totais_por_tipo(entradas)
 
+    totais_categorias = {cat: 0.0 for cat in CATEGORIAS_SAIDA}
+    for s in saidas:
+        cat = s["categoria"] or "OUTROS"
+        if cat not in totais_categorias:
+            cat = "OUTROS"
+        totais_categorias[cat] += float(s["valor"])
+
     return dict(
         mes=mes,
         entradas=entradas,
@@ -535,6 +563,8 @@ def _dados_fechamento(mes):
         total_bruto=total_bruto,
         total_saidas=total_saidas,
         totais_entradas=totais_entradas,
+        totais_categorias=totais_categorias,
+        categorias_saida=CATEGORIAS_SAIDA,
         valor_sede=valor_sede,
         valor_fundo=valor_fundo,
         valor_regional=valor_regional,
@@ -629,25 +659,54 @@ def fechamento_pdf():
     story.append(t_e)
     story.append(Spacer(1, 0.5*cm))
 
-    # --- Saídas ---
-    story.append(Paragraph("Saídas", secao_style))
-    s_data = [["Data", "Motivo", "Conta", "Valor"]]
+    # --- Despesas por categoria ---
+    story.append(Paragraph("Despesas por Categoria", secao_style))
+    cat_data = [["Categoria", "Total"]]
+    for cat in CATEGORIAS_SAIDA:
+        val = dados["totais_categorias"].get(cat, 0.0)
+        if val > 0:
+            cat_data.append([cat, fmt(val)])
+    cat_data.append(["TOTAL SAÍDAS", fmt(dados["total_saidas"])])
+
+    t_cat = Table(cat_data, colWidths=[12.5*cm, 4*cm])
+    t_cat.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), azul),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fff4ee")]),
+        ("BACKGROUND", (0, -1), (-1, -1), laranja),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t_cat)
+    story.append(Spacer(1, 0.5*cm))
+
+    # --- Saídas detalhadas ---
+    story.append(Paragraph("Saídas Detalhadas", secao_style))
+    s_data = [["Data", "Categoria", "Descrição", "Conta", "Valor"]]
     for s in dados["saidas"]:
         s_data.append([
             str(s["data"]),
+            s["categoria"] or "OUTROS",
             s["motivo"],
             s["conta_nome"],
             fmt(float(s["valor"])),
         ])
-    s_data.append(["", "", "TOTAL", fmt(dados["total_saidas"])])
+    s_data.append(["", "", "", "TOTAL", fmt(dados["total_saidas"])])
 
-    t_s = Table(s_data, colWidths=[2.2*cm, 8.5*cm, 3*cm, 2.8*cm])
+    t_s = Table(s_data, colWidths=[2*cm, 4.5*cm, 4.5*cm, 2.8*cm, 2.7*cm])
     t_s.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), azul),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("FONTSIZE", (0, 0), (-1, 0), 8),
         ("FONTSIZE", (0, 1), (-1, -1), 8),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#eef3fb")]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fff4ee")]),
         ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fde8d8")),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
