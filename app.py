@@ -36,6 +36,7 @@ CATEGORIAS_SAIDA = [
     "Realização de Santa Ceia",
     "Conservação e Reparo da Igreja",
     "Aquisição de Bens Materiais",
+    "Porcentagens"
     "Outros",
 ]
 
