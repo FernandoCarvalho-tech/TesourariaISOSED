@@ -36,9 +36,12 @@ CATEGORIAS_SAIDA = [
     "Realização de Santa Ceia",
     "Conservação e Reparo da Igreja",
     "Aquisição de Bens Materiais",
-    "Porcentagens"
+    "Porcentagens",
     "Outros",
 ]
+
+# Última categoria usada como fallback para registros antigos ou desconhecidos
+_CATEGORIA_FALLBACK = CATEGORIAS_SAIDA[-1]
 
 with app.app_context():
     init_db()
@@ -274,7 +277,7 @@ def editar_entrada(entrada_id):
 def nova_saida():
     conn = get_conn()
     if request.method == "POST":
-        categoria = request.form.get("categoria", "OUTROS")
+        categoria = request.form.get("categoria", _CATEGORIA_FALLBACK)
         motivo = request.form.get("motivo", "").strip()
         valor = request.form.get("valor", "0").replace(",", ".")
         conta_id = request.form.get("conta_id")
@@ -282,7 +285,7 @@ def nova_saida():
         observacao = request.form.get("observacao", "").strip() or None
 
         if categoria not in CATEGORIAS_SAIDA:
-            categoria = "OUTROS"
+            categoria = _CATEGORIA_FALLBACK
         try:
             valor_f = float(valor)
             if valor_f <= 0 or not motivo:
@@ -315,14 +318,14 @@ def nova_saida():
 def editar_saida(saida_id):
     conn = get_conn()
     if request.method == "POST":
-        categoria = request.form.get("categoria", "OUTROS")
+        categoria = request.form.get("categoria", _CATEGORIA_FALLBACK)
         motivo = request.form.get("motivo", "").strip()
         valor = request.form.get("valor", "0").replace(",", ".")
         conta_id = request.form.get("conta_id")
         data_lanc = request.form.get("data")
         observacao = request.form.get("observacao", "").strip() or None
         if categoria not in CATEGORIAS_SAIDA:
-            categoria = "OUTROS"
+            categoria = _CATEGORIA_FALLBACK
         try:
             valor_f = float(valor)
             if valor_f <= 0 or not motivo:
@@ -551,9 +554,9 @@ def _dados_fechamento(mes):
 
     totais_categorias = {cat: 0.0 for cat in CATEGORIAS_SAIDA}
     for s in saidas:
-        cat = s["categoria"] or "OUTROS"
+        cat = s["categoria"] or _CATEGORIA_FALLBACK
         if cat not in totais_categorias:
-            cat = "OUTROS"
+            cat = _CATEGORIA_FALLBACK
         totais_categorias[cat] += float(s["valor"])
 
     return dict(
@@ -693,7 +696,7 @@ def fechamento_pdf():
     for s in dados["saidas"]:
         s_data.append([
             str(s["data"]),
-            s["categoria"] or "OUTROS",
+            s["categoria"] or _CATEGORIA_FALLBACK,
             s["motivo"],
             s["conta_nome"],
             fmt(float(s["valor"])),
