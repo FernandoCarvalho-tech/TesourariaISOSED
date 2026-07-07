@@ -26,18 +26,17 @@ TAXA_FUNDO = 0.03
 TAXA_REGIONAL = 0.05
 
 CATEGORIAS_SAIDA = [
-    "ALUGUEL",
-    "PROGRAMA DE RÁDIO",
-    "ÁGUA E ENERGIA ELÉTRICA",
-    "TELEFONE",
-    "CORREIO E XEROX (CÓPIAS)",
-    "DESPESAS DE VIAGEM E COMBUSTÍVEL",
-    "REALIZAÇÃO DE EVENTOS",
-    "REALIZAÇÃO DA SANTA CEIA",
-    "CONSERVAÇÃO E REPARO DA IGREJA",
-    "AQUISIÇÃO DE BENS E MATERIAIS",
-    "PORCENTAGEM PARA SEDE",
-    "OUTROS",
+    "Aluguel",
+    "Programa de Rádio",
+    "Água e Energia Elétrica",
+    "Telefone",
+    "Correio e Xerox (Cópias)",
+    "Despesas de Viagens e Combustível",
+    "Realização de Eventos",
+    "Realização de Santa Ceia",
+    "Conservação e Reparo da Igreja",
+    "Aquisição de Bens Materiais",
+    "Outros",
 ]
 
 with app.app_context():
