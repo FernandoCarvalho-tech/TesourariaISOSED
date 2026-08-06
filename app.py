@@ -272,6 +272,17 @@ def editar_entrada(entrada_id):
     return render_template("editar_entrada.html", entrada=entrada, contas=contas, dizimistas=dizimistas)
 
 
+@app.route("/entradas/<int:entrada_id>/excluir", methods=["POST"])
+@requer_papel("admin")
+def excluir_entrada(entrada_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM entradas WHERE id=?", (entrada_id,))
+    conn.commit()
+    conn.close()
+    flash("Entrada excluída.", "success")
+    return redirect(url_for("extrato"))
+
+
 @app.route("/saidas/nova", methods=["GET", "POST"])
 @requer_papel("admin", "tesoureiro")
 def nova_saida():
@@ -352,6 +363,17 @@ def editar_saida(saida_id):
     return render_template("editar_saida.html", saida=saida, contas=contas, categorias=CATEGORIAS_SAIDA)
 
 
+@app.route("/saidas/<int:saida_id>/excluir", methods=["POST"])
+@requer_papel("admin")
+def excluir_saida(saida_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM saidas WHERE id=?", (saida_id,))
+    conn.commit()
+    conn.close()
+    flash("Saída excluída.", "success")
+    return redirect(url_for("extrato"))
+
+
 @app.route("/transferencias/nova", methods=["GET", "POST"])
 @requer_papel("admin", "tesoureiro")
 def nova_transferencia():
@@ -426,6 +448,17 @@ def editar_transferencia(transf_id):
     contas = _contas_ativas(conn)
     conn.close()
     return render_template("editar_transferencia.html", transf=transf, contas=contas)
+
+
+@app.route("/transferencias/<int:transf_id>/excluir", methods=["POST"])
+@requer_papel("admin")
+def excluir_transferencia(transf_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM transferencias WHERE id=?", (transf_id,))
+    conn.commit()
+    conn.close()
+    flash("Transferência excluída.", "success")
+    return redirect(url_for("extrato"))
 
 
 @app.route("/extrato")
@@ -978,6 +1011,33 @@ def api_dizimistas():
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+# ROTA TEMPORÁRIA — REMOVER APÓS USO
+@app.route("/reset-admin-senha", methods=["GET", "POST"])
+def reset_admin_senha():
+    import secrets
+    TOKEN_CORRETO = "isosed2026reset"
+    if request.method == "POST":
+        token = request.form.get("token", "")
+        nova = request.form.get("nova_senha", "")
+        if token != TOKEN_CORRETO:
+            return "<p style='color:red'>Token incorreto.</p><a href=''>Voltar</a>"
+        if len(nova) < 6:
+            return "<p style='color:red'>Senha muito curta (mínimo 6 caracteres).</p><a href=''>Voltar</a>"
+        conn = get_conn()
+        conn.execute("UPDATE usuarios SET senha_hash=? WHERE usuario='admin'", (generate_password_hash(nova),))
+        conn.commit()
+        conn.close()
+        return "<p style='color:green;font-size:18px'>✅ Senha do admin redefinida com sucesso! <a href='/'>Ir para login</a></p>"
+    return """
+    <html><body style='font-family:sans-serif;max-width:400px;margin:60px auto;padding:20px'>
+    <h2>Redefinir senha do Admin</h2>
+    <form method='POST'>
+      <p><label>Token de segurança:<br><input name='token' type='password' style='width:100%;padding:8px'></label></p>
+      <p><label>Nova senha:<br><input name='nova_senha' type='password' style='width:100%;padding:8px'></label></p>
+      <button type='submit' style='background:#1a4d8f;color:#fff;padding:10px 20px;border:none;border-radius:4px;cursor:pointer'>Redefinir</button>
+    </form></body></html>"""
 
 
 if __name__ == "__main__":
