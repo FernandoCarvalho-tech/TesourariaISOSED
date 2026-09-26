@@ -574,6 +574,26 @@ def _dados_fechamento(mes):
            ORDER BY s.data, s.criado_em""",
         (mes,),
     ).fetchall()
+
+    dp_row = conn.execute(
+        "SELECT valor, observacao FROM dizimo_pastor WHERE mes = ?", (mes,)
+    ).fetchone()
+    dizimo_pastor = float(dp_row["valor"]) if dp_row else 0.0
+    dizimo_pastor_obs = dp_row["observacao"] if dp_row else ""
+
+    # Saldo acumulado: todas as entradas e saídas até o último dia do mês selecionado
+    ano, m = int(mes[:4]), int(mes[5:7])
+    import calendar
+    ultimo_dia = calendar.monthrange(ano, m)[1]
+    data_ate = f"{mes}-{ultimo_dia:02d}"
+    total_entradas_acum = conn.execute(
+        "SELECT COALESCE(SUM(valor),0) AS t FROM entradas WHERE data <= ?", (data_ate,)
+    ).fetchone()["t"] or 0
+    total_saidas_acum = conn.execute(
+        "SELECT COALESCE(SUM(valor),0) AS t FROM saidas WHERE data <= ?", (data_ate,)
+    ).fetchone()["t"] or 0
+    saldo_acumulado = float(total_entradas_acum) - float(total_saidas_acum)
+
     conn.close()
 
     total_bruto = sum(float(e["valor"]) for e in entradas)
@@ -582,6 +602,7 @@ def _dados_fechamento(mes):
     valor_fundo = total_bruto * TAXA_FUNDO
     valor_regional = total_bruto * TAXA_REGIONAL
     valor_total_taxas = valor_sede + valor_fundo + valor_regional
+    total_enviado_sede = valor_sede + valor_fundo + dizimo_pastor
 
     totais_entradas = _totais_por_tipo(entradas)
 
@@ -608,6 +629,10 @@ def _dados_fechamento(mes):
         taxa_sede=TAXA_SEDE,
         taxa_fundo=TAXA_FUNDO,
         taxa_regional=TAXA_REGIONAL,
+        dizimo_pastor=dizimo_pastor,
+        dizimo_pastor_obs=dizimo_pastor_obs,
+        total_enviado_sede=total_enviado_sede,
+        saldo_acumulado=saldo_acumulado,
     )
 
 
@@ -617,6 +642,30 @@ def fechamento():
     mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
     dados = _dados_fechamento(mes)
     return render_template("fechamento.html", **dados)
+
+
+@app.route("/fechamento/dizimo-pastor", methods=["POST"])
+@requer_papel("tesoureiro")
+def salvar_dizimo_pastor():
+    mes = request.form.get("mes", "")
+    valor = float(request.form.get("valor") or 0)
+    obs = request.form.get("observacao", "")
+    conn = get_conn()
+    existing = conn.execute("SELECT id FROM dizimo_pastor WHERE mes = ?", (mes,)).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE dizimo_pastor SET valor=?, observacao=?, usuario_id=? WHERE mes=?",
+            (valor, obs, session["usuario_id"], mes),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO dizimo_pastor (mes, valor, observacao, usuario_id) VALUES (?,?,?,?)",
+            (mes, valor, obs, session["usuario_id"]),
+        )
+    conn.commit()
+    conn.close()
+    flash("Dízimo do Pastor salvo.", "success")
+    return redirect(url_for("fechamento", mes=mes))
 
 
 @app.route("/fechamento/pdf")
@@ -760,6 +809,8 @@ def fechamento_pdf():
         ["Destino", "% sobre Bruto", "Valor"],
         ["Sede Mundial (Maringá)", f"{int(TAXA_SEDE*100)}%", fmt(dados["valor_sede"])],
         ["Fundo (Sede Mundial)", f"{int(TAXA_FUNDO*100)}%", fmt(dados["valor_fundo"])],
+        ["Dízimo do Pastor", "-", fmt(dados["dizimo_pastor"])],
+        ["TOTAL ENVIADO À SEDE MUNDIAL", "", fmt(dados["total_enviado_sede"])],
         ["Sede Regional (Francisco Beltrão)", f"{int(TAXA_REGIONAL*100)}%", fmt(dados["valor_regional"])],
         ["TOTAL DAS TAXAS (23%)", "", fmt(dados["valor_total_taxas"])],
     ]
@@ -767,8 +818,10 @@ def fechamento_pdf():
     t_t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), azul),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, 0), 9),
-        ("FONTSIZE", (0, 1), (-1, -1), 9),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 4), (-1, 4), colors.HexColor("#1a4d8f")),
+        ("TEXTCOLOR", (0, 4), (-1, 4), colors.white),
+        ("FONTNAME", (0, 4), (-1, 4), "Helvetica-Bold"),
         ("BACKGROUND", (0, -1), (-1, -1), laranja),
         ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
@@ -787,13 +840,17 @@ def fechamento_pdf():
         ["Total Bruto Entradas", fmt(dados["total_bruto"])],
         ["Total Saídas", fmt(dados["total_saidas"])],
         ["Saldo do Mês", fmt(saldo_mes)],
+        ["Saldo Acumulado (até o mês)", fmt(dados["saldo_acumulado"])],
     ]
     t_r = Table(resumo_data, colWidths=[9*cm, 6*cm])
     t_r.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("BACKGROUND", (0, -1), (-1, -1), verde if saldo_mes >= 0 else colors.HexColor("#fadbd8")),
-        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white if saldo_mes >= 0 else colors.HexColor("#922b21")),
+        ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+        ("FONTNAME", (0, 3), (-1, 3), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 2), (-1, 2), verde if saldo_mes >= 0 else colors.HexColor("#fadbd8")),
+        ("TEXTCOLOR", (0, 2), (-1, 2), colors.white if saldo_mes >= 0 else colors.HexColor("#922b21")),
+        ("BACKGROUND", (0, 3), (-1, 3), azul),
+        ("TEXTCOLOR", (0, 3), (-1, 3), colors.white),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
         ("LINEABOVE", (0, 0), (-1, 0), 0.5, azul),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
@@ -1012,32 +1069,6 @@ def api_dizimistas():
     conn.close()
     return jsonify([dict(r) for r in rows])
 
-
-# ROTA TEMPORÁRIA — REMOVER APÓS USO
-@app.route("/reset-admin-senha", methods=["GET", "POST"])
-def reset_admin_senha():
-    import secrets
-    TOKEN_CORRETO = "isosed2026reset"
-    if request.method == "POST":
-        token = request.form.get("token", "")
-        nova = request.form.get("nova_senha", "")
-        if token != TOKEN_CORRETO:
-            return "<p style='color:red'>Token incorreto.</p><a href=''>Voltar</a>"
-        if len(nova) < 6:
-            return "<p style='color:red'>Senha muito curta (mínimo 6 caracteres).</p><a href=''>Voltar</a>"
-        conn = get_conn()
-        conn.execute("UPDATE usuarios SET senha_hash=? WHERE usuario='admin'", (generate_password_hash(nova),))
-        conn.commit()
-        conn.close()
-        return "<p style='color:green;font-size:18px'>✅ Senha do admin redefinida com sucesso! <a href='/'>Ir para login</a></p>"
-    return """
-    <html><body style='font-family:sans-serif;max-width:400px;margin:60px auto;padding:20px'>
-    <h2>Redefinir senha do Admin</h2>
-    <form method='POST'>
-      <p><label>Token de segurança:<br><input name='token' type='password' style='width:100%;padding:8px'></label></p>
-      <p><label>Nova senha:<br><input name='nova_senha' type='password' style='width:100%;padding:8px'></label></p>
-      <button type='submit' style='background:#1a4d8f;color:#fff;padding:10px 20px;border:none;border-radius:4px;cursor:pointer'>Redefinir</button>
-    </form></body></html>"""
 
 
 if __name__ == "__main__":

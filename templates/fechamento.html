@@ -57,6 +57,15 @@
         <td data-label="Valor">R$ {{ "%.2f"|format(valor_fundo)|replace(".", ",") }}</td>
       </tr>
       <tr>
+        <td data-label="Destino">Dízimo do Pastor</td>
+        <td data-label="%">—</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(dizimo_pastor)|replace(".", ",") }}</td>
+      </tr>
+      <tr style="font-weight:bold; background:#eef3fb;">
+        <td data-label="Destino" colspan="2">Total Enviado à Sede Mundial</td>
+        <td data-label="Valor">R$ {{ "%.2f"|format(total_enviado_sede)|replace(".", ",") }}</td>
+      </tr>
+      <tr>
         <td data-label="Destino">Sede Regional (Francisco Beltrão)</td>
         <td data-label="%">{{ (taxa_regional * 100)|int }}%</td>
         <td data-label="Valor">R$ {{ "%.2f"|format(valor_regional)|replace(".", ",") }}</td>
@@ -64,7 +73,25 @@
     </tbody>
   </table>
 
-  <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:14px;">
+  <div style="margin-top:14px;">
+    <h4 style="margin-bottom:8px;">Dízimo do Pastor — registrar para o mês</h4>
+    <form method="POST" action="{{ url_for('salvar_dizimo_pastor') }}" class="row" style="align-items:flex-end; gap:10px;">
+      <input type="hidden" name="mes" value="{{ mes }}">
+      <div>
+        <label>Valor (R$)</label>
+        <input type="number" name="valor" step="0.01" min="0" value="{{ '%.2f'|format(dizimo_pastor) }}" style="width:140px;">
+      </div>
+      <div>
+        <label>Observação</label>
+        <input type="text" name="observacao" value="{{ dizimo_pastor_obs }}" style="width:220px;">
+      </div>
+      <div>
+        <button type="submit">Salvar</button>
+      </div>
+    </form>
+  </div>
+
+  <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:18px;">
     <div class="saldo-card" style="background:#eef3fb;">
       <div class="nome">Total Bruto Entradas</div>
       <div class="valor" style="color:#1a4d8f;">R$ {{ "%.2f"|format(total_bruto)|replace(".", ",") }}</div>
@@ -81,6 +108,10 @@
     <div class="saldo-card" style="background:{{ '#d4efdf' if saldo_mes >= 0 else '#fadbd8' }};">
       <div class="nome">Saldo do Mês</div>
       <div class="valor" style="color:{{ '#196f3d' if saldo_mes >= 0 else '#c0392b' }};">R$ {{ "%.2f"|format(saldo_mes)|replace(".", ",") }}</div>
+    </div>
+    <div class="saldo-card" style="background:#1a4d8f;">
+      <div class="nome" style="color:#fff;">Saldo Acumulado</div>
+      <div class="valor" style="color:#fff;">R$ {{ "%.2f"|format(saldo_acumulado)|replace(".", ",") }}</div>
     </div>
   </div>
   <p style="color:#888; font-size:13px; margin-top:10px;">

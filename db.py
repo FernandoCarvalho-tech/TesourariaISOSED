@@ -144,5 +144,16 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dizimo_pastor (
+            id SERIAL PRIMARY KEY,
+            mes TEXT NOT NULL UNIQUE,
+            valor NUMERIC(12,2) NOT NULL DEFAULT 0,
+            observacao TEXT,
+            usuario_id INTEGER REFERENCES usuarios (id),
+            criado_em TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
     conn.commit()
     conn.close()
