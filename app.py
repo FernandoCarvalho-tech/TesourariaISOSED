@@ -645,7 +645,7 @@ def fechamento():
 
 
 @app.route("/fechamento/dizimo-pastor", methods=["POST"])
-@requer_papel("tesoureiro")
+@requer_papel("admin", "tesoureiro")
 def salvar_dizimo_pastor():
     mes = request.form.get("mes", "")
     valor = float(request.form.get("valor") or 0)
