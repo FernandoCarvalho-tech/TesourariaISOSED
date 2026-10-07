@@ -668,20 +668,23 @@ def salvar_dizimo_pastor():
     return redirect(url_for("fechamento", mes=mes))
 
 
-@app.route("/fechamento/pdf")
-def fechamento_pdf():
-    hoje = date.today()
-    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
-    dados = _dados_fechamento(mes)
+def _pdf_story_mes(dados, styles, azul, verde, laranja, fmt):
+    """Retorna lista de flowables ReportLab para um mês de fechamento."""
+    from reportlab.platypus import PageBreak as _PB
 
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=2*cm, rightMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
-    styles = getSampleStyleSheet()
-    azul = colors.HexColor("#1a4d8f")
-    verde = colors.HexColor("#2e8b3a")
-    laranja = colors.HexColor("#e8650f")
+    MESES_PT = {
+        "01": "Janeiro", "02": "Fevereiro", "03": "Março", "04": "Abril",
+        "05": "Maio", "06": "Junho", "07": "Julho", "08": "Agosto",
+        "09": "Setembro", "10": "Outubro", "11": "Novembro", "12": "Dezembro",
+    }
+    TIPO_LABEL = {
+        "dizimo": "Dízimo",
+        "oferta_nominal": "Oferta Nominal",
+        "oferta_coletiva": "Oferta Coletiva",
+    }
+
+    ano, mes_num = dados["mes"].split("-")
+    mes_label = f"{MESES_PT[mes_num]}/{ano}"
 
     titulo_style = ParagraphStyle("titulo", parent=styles["Title"],
                                   fontSize=16, textColor=azul, spaceAfter=4)
@@ -690,121 +693,81 @@ def fechamento_pdf():
     secao_style = ParagraphStyle("secao", parent=styles["Heading2"],
                                  fontSize=12, textColor=azul, spaceBefore=12, spaceAfter=4)
 
-    MESES_PT = {
-        "01": "Janeiro","02": "Fevereiro","03": "Março","04": "Abril",
-        "05": "Maio","06": "Junho","07": "Julho","08": "Agosto",
-        "09": "Setembro","10": "Outubro","11": "Novembro","12": "Dezembro",
-    }
-    ano, mes_num = mes.split("-")
-    mes_label = f"{MESES_PT[mes_num]}/{ano}"
+    els = []
+    els.append(Paragraph("TESOURARIA ISOSED", titulo_style))
+    els.append(Paragraph(f"Fechamento Mensal — {mes_label}", sub_style))
+    els.append(HRFlowable(width="100%", thickness=1, color=azul))
+    els.append(Spacer(1, 0.4*cm))
 
-    TIPO_LABEL = {
-        "dizimo": "Dízimo",
-        "oferta_nominal": "Oferta Nominal",
-        "oferta_coletiva": "Oferta Coletiva",
-    }
-
-    def fmt(v):
-        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-    story = []
-    story.append(Paragraph("TESOURARIA ISOSED", titulo_style))
-    story.append(Paragraph(f"Fechamento Mensal — {mes_label}", sub_style))
-    story.append(HRFlowable(width="100%", thickness=1, color=azul))
-    story.append(Spacer(1, 0.4*cm))
-
-    # --- Entradas ---
-    story.append(Paragraph("Entradas", secao_style))
+    # Entradas
+    els.append(Paragraph("Entradas", secao_style))
     e_data = [["Data", "Tipo", "Pessoa/Descrição", "Conta", "Valor"]]
     for e in dados["entradas"]:
-        e_data.append([
-            str(e["data"]),
-            TIPO_LABEL.get(e["tipo"], e["tipo"]),
-            e["nome_pessoa"] or "-",
-            e["conta_nome"],
-            fmt(float(e["valor"])),
-        ])
+        e_data.append([str(e["data"]), TIPO_LABEL.get(e["tipo"], e["tipo"]),
+                       e["nome_pessoa"] or "-", e["conta_nome"], fmt(float(e["valor"]))])
     e_data.append(["", "", "", "TOTAL", fmt(dados["total_bruto"])])
-
     t_e = Table(e_data, colWidths=[2.2*cm, 3.5*cm, 5.5*cm, 3*cm, 2.8*cm])
     t_e.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), azul),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, 0), 9),
-        ("FONTSIZE", (0, 1), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, 0), azul), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, 0), 9), ("FONTSIZE", (0, 1), (-1, -1), 8),
         ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#eef3fb")]),
         ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#d4e8d4")),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    story.append(t_e)
-    story.append(Spacer(1, 0.5*cm))
+    els.append(t_e)
+    els.append(Spacer(1, 0.5*cm))
 
-    # --- Despesas por categoria ---
-    story.append(Paragraph("Despesas por Categoria", secao_style))
+    # Despesas por categoria
+    els.append(Paragraph("Despesas por Categoria", secao_style))
     cat_data = [["Categoria", "Total"]]
     for cat in CATEGORIAS_SAIDA:
         val = dados["totais_categorias"].get(cat, 0.0)
         if val > 0:
             cat_data.append([cat, fmt(val)])
     cat_data.append(["TOTAL SAÍDAS", fmt(dados["total_saidas"])])
-
     t_cat = Table(cat_data, colWidths=[12.5*cm, 4*cm])
     t_cat.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), azul),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, 0), 9),
-        ("FONTSIZE", (0, 1), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (-1, 0), azul), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fff4ee")]),
-        ("BACKGROUND", (0, -1), (-1, -1), laranja),
-        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("BACKGROUND", (0, -1), (-1, -1), laranja), ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    story.append(t_cat)
-    story.append(Spacer(1, 0.5*cm))
+    els.append(t_cat)
+    els.append(Spacer(1, 0.5*cm))
 
-    # --- Saídas detalhadas ---
-    story.append(Paragraph("Saídas Detalhadas", secao_style))
+    # Saídas detalhadas
+    els.append(Paragraph("Saídas Detalhadas", secao_style))
     s_data = [["Data", "Categoria", "Descrição", "Conta", "Valor"]]
     for s in dados["saidas"]:
-        s_data.append([
-            str(s["data"]),
-            s["categoria"] or _CATEGORIA_FALLBACK,
-            s["motivo"],
-            s["conta_nome"],
-            fmt(float(s["valor"])),
-        ])
+        s_data.append([str(s["data"]), s["categoria"] or _CATEGORIA_FALLBACK,
+                       s["motivo"], s["conta_nome"], fmt(float(s["valor"]))])
     s_data.append(["", "", "", "TOTAL", fmt(dados["total_saidas"])])
-
     t_s = Table(s_data, colWidths=[2*cm, 4.5*cm, 4.5*cm, 2.8*cm, 2.7*cm])
     t_s.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), azul),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, 0), 8),
-        ("FONTSIZE", (0, 1), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, 0), azul), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fff4ee")]),
         ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fde8d8")),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    story.append(t_s)
-    story.append(Spacer(1, 0.5*cm))
+    els.append(t_s)
+    els.append(Spacer(1, 0.5*cm))
 
-    # --- Taxas ---
-    story.append(Paragraph("Repasses às Sedes", secao_style))
+    # Repasses
+    els.append(Paragraph("Repasses às Sedes", secao_style))
     taxas_data = [
         ["Destino", "% sobre Bruto", "Valor"],
         ["Sede Mundial (Maringá)", f"{int(TAXA_SEDE*100)}%", fmt(dados["valor_sede"])],
@@ -816,24 +779,19 @@ def fechamento_pdf():
     ]
     t_t = Table(taxas_data, colWidths=[9*cm, 3*cm, 3*cm])
     t_t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), azul),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 0), (-1, 0), azul), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("BACKGROUND", (0, 4), (-1, 4), colors.HexColor("#1a4d8f")),
-        ("TEXTCOLOR", (0, 4), (-1, 4), colors.white),
+        ("BACKGROUND", (0, 4), (-1, 4), azul), ("TEXTCOLOR", (0, 4), (-1, 4), colors.white),
         ("FONTNAME", (0, 4), (-1, 4), "Helvetica-Bold"),
-        ("BACKGROUND", (0, -1), (-1, -1), laranja),
-        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("BACKGROUND", (0, -1), (-1, -1), laranja), ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
-        ("ALIGN", (1, 0), (1, -1), "CENTER"),
+        ("ALIGN", (-1, 0), (-1, -1), "RIGHT"), ("ALIGN", (1, 0), (1, -1), "CENTER"),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    story.append(t_t)
-    story.append(Spacer(1, 0.4*cm))
+    els.append(t_t)
+    els.append(Spacer(1, 0.4*cm))
 
     saldo_mes = dados["total_bruto"] - dados["total_saidas"]
     resumo_data = [
@@ -849,15 +807,55 @@ def fechamento_pdf():
         ("FONTNAME", (0, 3), (-1, 3), "Helvetica-Bold"),
         ("BACKGROUND", (0, 2), (-1, 2), verde if saldo_mes >= 0 else colors.HexColor("#fadbd8")),
         ("TEXTCOLOR", (0, 2), (-1, 2), colors.white if saldo_mes >= 0 else colors.HexColor("#922b21")),
-        ("BACKGROUND", (0, 3), (-1, 3), azul),
-        ("TEXTCOLOR", (0, 3), (-1, 3), colors.white),
+        ("BACKGROUND", (0, 3), (-1, 3), azul), ("TEXTCOLOR", (0, 3), (-1, 3), colors.white),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
         ("LINEABOVE", (0, 0), (-1, 0), 0.5, azul),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    story.append(t_r)
+    els.append(t_r)
+    return els
 
+
+def _pdf_setup():
+    """Retorna (buf, doc, styles, azul, verde, laranja, fmt)."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    azul = colors.HexColor("#1a4d8f")
+    verde = colors.HexColor("#2e8b3a")
+    laranja = colors.HexColor("#e8650f")
+
+    def fmt(v):
+        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    return buf, doc, styles, azul, verde, laranja, fmt
+
+
+def _range_meses(mes_ini, mes_fim):
+    """Retorna lista de strings 'YYYY-MM' entre mes_ini e mes_fim inclusive."""
+    import calendar
+    resultado = []
+    ano, m = int(mes_ini[:4]), int(mes_ini[5:7])
+    ano_fim, m_fim = int(mes_fim[:4]), int(mes_fim[5:7])
+    while (ano, m) <= (ano_fim, m_fim):
+        resultado.append(f"{ano:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m = 1
+            ano += 1
+    return resultado
+
+
+@app.route("/fechamento/pdf")
+def fechamento_pdf():
+    hoje = date.today()
+    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
+    dados = _dados_fechamento(mes)
+    buf, doc, styles, azul, verde, laranja, fmt = _pdf_setup()
+
+    story = _pdf_story_mes(dados, styles, azul, verde, laranja, fmt)
     story.append(Spacer(1, 0.6*cm))
     story.append(Paragraph(
         f"Emitido em {date.today().strftime('%d/%m/%Y')} por {session.get('usuario_nome', '')}",
@@ -869,6 +867,43 @@ def fechamento_pdf():
     resp = make_response(buf.read())
     resp.headers["Content-Type"] = "application/pdf"
     resp.headers["Content-Disposition"] = f"attachment; filename=fechamento_{mes}.pdf"
+    return resp
+
+
+@app.route("/fechamento/pdf-multiplo")
+def fechamento_pdf_multiplo():
+    from reportlab.platypus import PageBreak
+    hoje = date.today()
+    mes_ini = request.args.get("mes_ini") or f"{hoje.year:04d}-{hoje.month:02d}"
+    mes_fim = request.args.get("mes_fim") or f"{hoje.year:04d}-{hoje.month:02d}"
+
+    meses = _range_meses(mes_ini, mes_fim)
+    if len(meses) > 24:
+        flash("Máximo de 24 meses por exportação.", "error")
+        return redirect(url_for("fechamento"))
+
+    buf, doc, styles, azul, verde, laranja, fmt = _pdf_setup()
+    rodape_style = ParagraphStyle("rodape", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+
+    story = []
+    for i, mes in enumerate(meses):
+        dados = _dados_fechamento(mes)
+        story += _pdf_story_mes(dados, styles, azul, verde, laranja, fmt)
+        if i < len(meses) - 1:
+            story.append(PageBreak())
+
+    story.append(Spacer(1, 0.6*cm))
+    story.append(Paragraph(
+        f"Emitido em {date.today().strftime('%d/%m/%Y')} por {session.get('usuario_nome', '')} "
+        f"— período: {mes_ini} a {mes_fim}",
+        rodape_style,
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+    resp = make_response(buf.read())
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = f"attachment; filename=fechamento_{mes_ini}_a_{mes_fim}.pdf"
     return resp
 
 

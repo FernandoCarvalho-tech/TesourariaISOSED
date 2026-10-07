@@ -4,10 +4,29 @@
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
     <h2 style="margin:0;">Fechamento Mensal</h2>
-    <a href="{{ url_for('fechamento_pdf', mes=mes) }}" class="btn" style="background:#e8650f; margin-top:0;">
-      ⬇ Exportar PDF
-    </a>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <a href="{{ url_for('fechamento_pdf', mes=mes) }}" class="btn" style="background:#e8650f; margin-top:0;">
+        ⬇ PDF deste mês
+      </a>
+      <button type="button" class="btn secondary" style="margin-top:0;" onclick="document.getElementById('form-multi-pdf').style.display=document.getElementById('form-multi-pdf').style.display==='none'?'flex':'none'">
+        ⬇ PDF vários meses
+      </button>
+    </div>
   </div>
+  <form id="form-multi-pdf" method="GET" action="{{ url_for('fechamento_pdf_multiplo') }}"
+        style="display:none; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-top:12px; padding:12px; background:#f5f7fa; border-radius:6px;">
+    <div>
+      <label>De</label>
+      <input type="month" name="mes_ini" value="{{ mes }}" required>
+    </div>
+    <div>
+      <label>Até</label>
+      <input type="month" name="mes_fim" value="{{ mes }}" required>
+    </div>
+    <div>
+      <button type="submit" class="btn" style="background:#e8650f; margin-top:0;">Exportar PDF</button>
+    </div>
+  </form>
   <form method="GET" class="row" style="margin-top:12px;">
     <div>
       <label>Mês de referência</label>
