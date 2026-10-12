@@ -91,6 +91,25 @@
     <label>Função * <span style="font-weight:normal; color:#888; font-size:12px;">ex: Líder dos Jovens, Líder do Louvor...</span></label>
     <input type="text" name="funcao" value="{{ m.funcao or '' }}" required>
 
+    <hr style="margin:20px 0; border-color:#eee;">
+    <h4 style="margin:0 0 8px; color:#1a4d8f;">Vínculo de Casal (opcional)</h4>
+
+    <label>Cônjuge (membro cadastrado)</label>
+    <select name="conjuge_membro_id">
+      <option value="">Nenhum</option>
+      {% for mb in membros %}
+      <option value="{{ mb.id }}" {{ 'selected' if m.conjuge_membro_id == mb.id }}>{{ mb.nome }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Dizimista do Casal <span style="font-weight:normal; color:#888; font-size:12px;">— usado quando dizimam juntos</span></label>
+    <select name="dizimista_casal_id">
+      <option value="">Nenhum</option>
+      {% for d in dizimistas %}
+      <option value="{{ d.id }}" {{ 'selected' if m.dizimista_casal_id == d.id }}>{{ d.nome }}</option>
+      {% endfor %}
+    </select>
+
     <div style="display:flex; gap:10px; margin-top:12px;">
       <button type="submit">Salvar</button>
       <a href="{{ url_for('membros') }}" class="btn secondary" style="margin-top:0;">Cancelar</a>

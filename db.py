@@ -206,5 +206,8 @@ def init_db():
         )
     """)
 
+    cur.execute("ALTER TABLE membros ADD COLUMN IF NOT EXISTS conjuge_membro_id INTEGER REFERENCES membros(id)")
+    cur.execute("ALTER TABLE membros ADD COLUMN IF NOT EXISTS dizimista_casal_id INTEGER REFERENCES dizimistas(id)")
+
     conn.commit()
     conn.close()

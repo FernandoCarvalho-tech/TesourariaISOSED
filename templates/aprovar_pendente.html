@@ -54,6 +54,26 @@
       </select>
     </div>
 
+    <hr style="margin:20px 0; border-color:#eee;">
+    <h4 style="margin:0 0 8px; color:#1a4d8f;">Vínculo de Casal (opcional)</h4>
+    <p style="font-size:13px; color:#888; margin:0 0 10px;">Preencha se este membro diezima em casal com outro membro já cadastrado.</p>
+
+    <label>Cônjuge (membro já cadastrado)</label>
+    <select name="conjuge_membro_id" id="conjuge_membro_id" onchange="sugerirCasal(this.value)">
+      <option value="">Nenhum / não se aplica</option>
+      {% for m in membros %}
+      <option value="{{ m.id }}">{{ m.nome }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Dizimista do Casal <span style="font-size:12px; color:#888;">— o registro usado quando dizimam juntos</span></label>
+    <select name="dizimista_casal_id" id="dizimista_casal_id">
+      <option value="">Nenhum</option>
+      {% for d in dizimistas %}
+      <option value="{{ d.id }}">{{ d.nome }}</option>
+      {% endfor %}
+    </select>
+
     <button type="submit" style="margin-top:16px;">✅ Efetivar Cadastro</button>
   </form>
 </div>

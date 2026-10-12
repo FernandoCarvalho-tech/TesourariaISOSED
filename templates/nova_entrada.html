@@ -13,12 +13,27 @@
 
     <div id="bloco-pessoa">
       <label>Dizimista cadastrado</label>
-      <select name="dizimista_id">
+      <select name="dizimista_id" id="dizimista_id" onchange="verificarCasal(this.value)">
         <option value="">-- Selecione (ou digite um nome avulso abaixo) --</option>
         {% for d in dizimistas %}
         <option value="{{ d.id }}">{{ d.nome }}</option>
         {% endfor %}
       </select>
+
+      <div id="bloco-casal" style="display:none; margin-top:8px; padding:10px; background:#eef3fb; border-radius:6px; border-left:3px solid #1a4d8f;">
+        <span style="font-size:13px; color:#1a4d8f;">👫 Este membro diezima em casal. Lançar como:</span>
+        <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
+          <button type="button" id="btn-individual" onclick="usarIndividual()"
+                  class="btn secondary" style="margin-top:0; padding:6px 14px; font-size:13px;">
+            Individual (selecionado)
+          </button>
+          <button type="button" id="btn-casal" onclick="usarCasal()"
+                  class="btn" style="margin-top:0; padding:6px 14px; font-size:13px; background:#1a4d8f;">
+            Casal: <span id="label-casal"></span>
+          </button>
+        </div>
+      </div>
+
       <label>Ou nome avulso (se não cadastrado)</label>
       <input type="text" name="nome_avulso" placeholder="Nome completo">
     </div>
@@ -52,7 +67,46 @@ function atualizarTipo() {
   const tipo = document.getElementById('tipo').value;
   const bloco = document.getElementById('bloco-pessoa');
   bloco.style.display = tipo === 'oferta_coletiva' ? 'none' : 'block';
+  if (tipo === 'oferta_coletiva') document.getElementById('bloco-casal').style.display = 'none';
 }
+
+let casalId = null;
+let individualId = null;
+
+function verificarCasal(dizId) {
+  const bloco = document.getElementById('bloco-casal');
+  if (!dizId) { bloco.style.display = 'none'; return; }
+  individualId = dizId;
+  fetch(`/api/casal-dizimista?dizimista_id=${dizId}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data) {
+        casalId = data.id;
+        document.getElementById('label-casal').textContent = data.nome;
+        bloco.style.display = 'block';
+        marcarBotao('individual');
+      } else {
+        casalId = null;
+        bloco.style.display = 'none';
+      }
+    });
+}
+
+function usarIndividual() {
+  document.getElementById('dizimista_id').value = individualId;
+  marcarBotao('individual');
+}
+
+function usarCasal() {
+  document.getElementById('dizimista_id').value = casalId;
+  marcarBotao('casal');
+}
+
+function marcarBotao(ativo) {
+  document.getElementById('btn-individual').style.background = ativo === 'individual' ? '#1a4d8f' : '#7f8c8d';
+  document.getElementById('btn-casal').style.background = ativo === 'casal' ? '#1a4d8f' : '#7f8c8d';
+}
+
 atualizarTipo();
 </script>
 {% endblock %}

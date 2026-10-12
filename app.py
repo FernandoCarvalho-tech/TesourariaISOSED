@@ -1173,33 +1173,51 @@ def aprovar_pendente(pid):
     dizimistas_lista = conn.execute(
         "SELECT id, nome FROM dizimistas WHERE ativo=TRUE ORDER BY nome"
     ).fetchall()
+    membros_lista = conn.execute(
+        "SELECT id, nome FROM membros WHERE ativo=TRUE ORDER BY nome"
+    ).fetchall()
 
     if request.method == "POST":
         acao = request.form.get("acao")
         vincular_id = request.form.get("dizimista_id") or None
+        conjuge_membro_id = request.form.get("conjuge_membro_id") or None
+        dizimista_casal_id = request.form.get("dizimista_casal_id") or None
+
+        if conjuge_membro_id:
+            conjuge_membro_id = int(conjuge_membro_id)
+        if dizimista_casal_id:
+            dizimista_casal_id = int(dizimista_casal_id)
 
         if acao == "novo":
-            # Cria dizimista novo
-            cur = conn.execute(
-                "INSERT INTO dizimistas (nome) VALUES (?)", (p["nome"],)
-            )
+            cur = conn.execute("INSERT INTO dizimistas (nome) VALUES (?)", (p["nome"],))
             diz_id = cur.lastrowid
         else:
             diz_id = int(vincular_id) if vincular_id else None
             if diz_id:
                 conn.execute("UPDATE dizimistas SET nome=? WHERE id=?", (p["nome"], diz_id))
 
-        conn.execute(
+        novo_cur = conn.execute(
             """INSERT INTO membros
-               (dizimista_id,nome,sexo,endereco,numero,bairro,cep,naturalidade,
+               (dizimista_id,conjuge_membro_id,dizimista_casal_id,
+                nome,sexo,endereco,numero,bairro,cep,naturalidade,
                 data_nascimento,data_batizo,fone,profissao,rg,cpf,
                 estado_civil,nome_conjuge,cargo_igreja,funcao)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (diz_id, p["nome"], p["sexo"], p["endereco"], p["numero"], p["bairro"],
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (diz_id, conjuge_membro_id, dizimista_casal_id,
+             p["nome"], p["sexo"], p["endereco"], p["numero"], p["bairro"],
              p["cep"], p["naturalidade"], p["data_nascimento"], p["data_batizo"],
              p["fone"], p["profissao"], p["rg"], p["cpf"],
              p["estado_civil"], p["nome_conjuge"], p["cargo_igreja"], p["funcao"]),
         )
+        novo_id = novo_cur.lastrowid
+
+        # Vínculo bidirecional: atualiza o cônjuge com o ID deste novo membro
+        if conjuge_membro_id:
+            conn.execute(
+                "UPDATE membros SET conjuge_membro_id=?, dizimista_casal_id=? WHERE id=?",
+                (novo_id, dizimista_casal_id, conjuge_membro_id),
+            )
+
         conn.execute("UPDATE membros_pendentes SET status='aprovado' WHERE id=?", (pid,))
         conn.commit()
         conn.close()
@@ -1208,7 +1226,7 @@ def aprovar_pendente(pid):
 
     conn.close()
     return render_template("aprovar_pendente.html", p=p, dizimistas=dizimistas_lista,
-                           estados_civis=_ESTADOS_CIVIS)
+                           membros=membros_lista, estados_civis=_ESTADOS_CIVIS)
 
 
 @app.route("/admin/membros/pendentes/<int:pid>/rejeitar", methods=["POST"])
@@ -1231,11 +1249,26 @@ def editar_membro(mid):
         conn.close()
         flash("Membro não encontrado.", "error")
         return redirect(url_for("membros"))
+    membros_lista = conn.execute(
+        "SELECT id, nome FROM membros WHERE ativo=TRUE AND id != ? ORDER BY nome", (mid,)
+    ).fetchall()
+    dizimistas_lista = conn.execute(
+        "SELECT id, nome FROM dizimistas WHERE ativo=TRUE ORDER BY nome"
+    ).fetchall()
+
     if request.method == "POST":
+        conjuge_membro_id = request.form.get("conjuge_membro_id") or None
+        dizimista_casal_id = request.form.get("dizimista_casal_id") or None
+        if conjuge_membro_id:
+            conjuge_membro_id = int(conjuge_membro_id)
+        if dizimista_casal_id:
+            dizimista_casal_id = int(dizimista_casal_id)
+
         conn.execute(
             """UPDATE membros SET nome=?,sexo=?,endereco=?,numero=?,bairro=?,cep=?,
                naturalidade=?,data_nascimento=?,data_batizo=?,fone=?,profissao=?,
-               rg=?,cpf=?,estado_civil=?,nome_conjuge=?,cargo_igreja=?,funcao=?
+               rg=?,cpf=?,estado_civil=?,nome_conjuge=?,cargo_igreja=?,funcao=?,
+               conjuge_membro_id=?,dizimista_casal_id=?
                WHERE id=?""",
             (request.form.get("nome"), request.form.get("sexo"),
              request.form.get("endereco"), request.form.get("numero"),
@@ -1245,14 +1278,21 @@ def editar_membro(mid):
              request.form.get("profissao") or None, request.form.get("rg") or None,
              request.form.get("cpf") or None, request.form.get("estado_civil"),
              request.form.get("nome_conjuge") or None, request.form.get("cargo_igreja"),
-             request.form.get("funcao"), mid),
+             request.form.get("funcao"), conjuge_membro_id, dizimista_casal_id, mid),
         )
+        # Vínculo bidirecional
+        if conjuge_membro_id:
+            conn.execute(
+                "UPDATE membros SET conjuge_membro_id=?, dizimista_casal_id=? WHERE id=?",
+                (mid, dizimista_casal_id, conjuge_membro_id),
+            )
         conn.commit()
         conn.close()
         flash("Membro atualizado.", "success")
         return redirect(url_for("membros"))
     conn.close()
-    return render_template("editar_membro.html", m=m, estados_civis=_ESTADOS_CIVIS)
+    return render_template("editar_membro.html", m=m, estados_civis=_ESTADOS_CIVIS,
+                           membros=membros_lista, dizimistas=dizimistas_lista)
 
 
 @app.route("/admin/membros/<int:mid>/toggle", methods=["POST"])
@@ -1263,6 +1303,25 @@ def toggle_membro(mid):
     conn.commit()
     conn.close()
     return redirect(url_for("membros"))
+
+
+@app.route("/api/casal-dizimista")
+def api_casal_dizimista():
+    """Dado um dizimista_id, retorna o dizimista do casal vinculado (se houver)."""
+    diz_id = request.args.get("dizimista_id", type=int)
+    if not diz_id:
+        return jsonify(None)
+    conn = get_conn()
+    row = conn.execute(
+        """SELECT d.id, d.nome
+           FROM membros m
+           JOIN dizimistas d ON d.id = m.dizimista_casal_id
+           WHERE m.dizimista_id = ? AND m.dizimista_casal_id IS NOT NULL
+           LIMIT 1""",
+        (diz_id,),
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else None)
 
 
 if __name__ == "__main__":
