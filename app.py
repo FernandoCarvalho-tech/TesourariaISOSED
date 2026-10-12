@@ -49,7 +49,7 @@ with app.app_context():
 
 @app.before_request
 def exigir_login():
-    rotas_publicas = {"login", "static", "manifest", "service_worker"}
+    rotas_publicas = {"login", "static", "manifest", "service_worker", "cadastro_publico"}
     if request.endpoint in rotas_publicas or request.endpoint is None:
         return
     if not session.get("logado"):
