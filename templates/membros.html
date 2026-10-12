@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Membros{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <h2 style="margin:0;">Membros Cadastrados</h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      {% if session.get('papel') == 'admin' and pendentes > 0 %}
+      <a href="{{ url_for('membros_pendentes') }}" class="btn" style="background:#e8650f; margin-top:0;">
+        ⏳ Pendentes ({{ pendentes }})
+      </a>
+      {% endif %}
+      <a href="{{ url_for('cadastro_publico') }}" class="btn secondary" style="margin-top:0;" target="_blank">
+        🔗 Link do Formulário
+      </a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Nome</th><th>Sexo</th><th>Fone</th><th>Cargo</th><th>Função</th>
+        <th>Estado Civil</th>{% if session.get('papel') == 'admin' %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in membros %}
+      <tr>
+        <td data-label="Nome">{{ m.nome }}</td>
+        <td data-label="Sexo">{{ m.sexo or '-' }}</td>
+        <td data-label="Fone">{{ m.fone or '-' }}</td>
+        <td data-label="Cargo">{{ m.cargo_igreja or '-' }}</td>
+        <td data-label="Função">{{ m.funcao or '-' }}</td>
+        <td data-label="Estado Civil">{{ m.estado_civil or '-' }}</td>
+        {% if session.get('papel') == 'admin' %}
+        <td style="white-space:nowrap;">
+          <a href="{{ url_for('editar_membro', mid=m.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a>
+          <form method="POST" action="{{ url_for('toggle_membro', mid=m.id) }}" style="display:inline;">
+            <button type="submit" class="btn danger" style="margin-top:0; padding:4px 10px; font-size:13px;">Inativar</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr><td colspan="7">Nenhum membro cadastrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

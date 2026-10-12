@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Cadastros Pendentes{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h2 style="margin:0;">Cadastros Pendentes de Aprovação</h2>
+    <a href="{{ url_for('membros') }}" class="btn secondary" style="margin-top:0;">← Voltar</a>
+  </div>
+</div>
+
+<div class="card">
+  {% if pendentes %}
+  <table>
+    <thead>
+      <tr><th>Nome</th><th>Fone</th><th>Cargo</th><th>Enviado em</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for p in pendentes %}
+      <tr>
+        <td data-label="Nome">{{ p.nome }}</td>
+        <td data-label="Fone">{{ p.fone or '-' }}</td>
+        <td data-label="Cargo">{{ p.cargo_igreja or '-' }}</td>
+        <td data-label="Enviado em">{{ p.criado_em.strftime("%d/%m/%Y %H:%M") }}</td>
+        <td style="white-space:nowrap;">
+          <a href="{{ url_for('aprovar_pendente', pid=p.id) }}" class="btn" style="margin-top:0; padding:4px 10px; font-size:13px;">Revisar</a>
+          <form method="POST" action="{{ url_for('rejeitar_pendente', pid=p.id) }}" style="display:inline;"
+                onsubmit="return confirm('Rejeitar o cadastro de {{ p.nome }}?');">
+            <button type="submit" class="btn danger" style="margin-top:0; padding:4px 10px; font-size:13px;">Rejeitar</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#888;">Nenhum cadastro pendente.</p>
+  {% endif %}
+</div>
+{% endblock %}

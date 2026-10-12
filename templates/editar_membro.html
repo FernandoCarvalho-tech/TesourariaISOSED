@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Editar Membro{% endblock %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">Editar Membro</h2>
+  <form method="POST" class="row" style="flex-direction:column; gap:0;">
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div>
+        <label>Nome *</label>
+        <input type="text" name="nome" value="{{ m.nome }}" required>
+      </div>
+      <div>
+        <label>Sexo *</label>
+        <select name="sexo" required>
+          <option value="">Selecione...</option>
+          <option {{ 'selected' if m.sexo == 'Masculino' }}>Masculino</option>
+          <option {{ 'selected' if m.sexo == 'Feminino' }}>Feminino</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div>
+        <label>Data de Nascimento *</label>
+        <input type="date" name="data_nascimento" value="{{ m.data_nascimento or '' }}" required>
+      </div>
+      <div>
+        <label>Data do Batismo</label>
+        <input type="date" name="data_batizo" value="{{ m.data_batizo or '' }}">
+      </div>
+    </div>
+
+    <label>Naturalidade * <span style="font-weight:normal; color:#888; font-size:12px;">cidade onde nasceu</span></label>
+    <input type="text" name="naturalidade" value="{{ m.naturalidade or '' }}" required>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div>
+        <label>Estado Civil *</label>
+        <select name="estado_civil" required>
+          <option value="">Selecione...</option>
+          {% for ec in estados_civis %}
+          <option {{ 'selected' if m.estado_civil == ec }}>{{ ec }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Nome do Cônjuge</label>
+        <input type="text" name="nome_conjuge" value="{{ m.nome_conjuge or '' }}">
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div>
+        <label>RG</label>
+        <input type="text" name="rg" value="{{ m.rg or '' }}">
+      </div>
+      <div>
+        <label>CPF</label>
+        <input type="text" name="cpf" value="{{ m.cpf or '' }}">
+      </div>
+    </div>
+
+    <label>Profissão</label>
+    <input type="text" name="profissao" value="{{ m.profissao or '' }}">
+
+    <label>Telefone / WhatsApp *</label>
+    <input type="tel" name="fone" value="{{ m.fone or '' }}" required>
+
+    <label>Endereço *</label>
+    <input type="text" name="endereco" value="{{ m.endereco or '' }}" required>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+      <div>
+        <label>Número *</label>
+        <input type="text" name="numero" value="{{ m.numero or '' }}" required>
+      </div>
+      <div>
+        <label>Bairro *</label>
+        <input type="text" name="bairro" value="{{ m.bairro or '' }}" required>
+      </div>
+      <div>
+        <label>CEP</label>
+        <input type="text" name="cep" value="{{ m.cep or '' }}">
+      </div>
+    </div>
+
+    <label>Cargo na Igreja * <span style="font-weight:normal; color:#888; font-size:12px;">ex: Diácono, Pastor, Evangelista...</span></label>
+    <input type="text" name="cargo_igreja" value="{{ m.cargo_igreja or '' }}" required>
+
+    <label>Função * <span style="font-weight:normal; color:#888; font-size:12px;">ex: Líder dos Jovens, Líder do Louvor...</span></label>
+    <input type="text" name="funcao" value="{{ m.funcao or '' }}" required>
+
+    <div style="display:flex; gap:10px; margin-top:12px;">
+      <button type="submit">Salvar</button>
+      <a href="{{ url_for('membros') }}" class="btn secondary" style="margin-top:0;">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

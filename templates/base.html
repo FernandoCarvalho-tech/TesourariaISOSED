@@ -74,6 +74,7 @@
   <a href="{{ url_for('fechamento') }}" class="{{ 'active' if request.endpoint == 'fechamento' else '' }}">Fechamento</a>
   {% if session.get('papel') in ('admin', 'tesoureiro') %}
   <a href="{{ url_for('dizimistas') }}" class="{{ 'active' if request.endpoint == 'dizimistas' else '' }}">Dizimistas</a>
+  <a href="{{ url_for('membros') }}" class="{{ 'active' if request.endpoint in ('membros', 'membros_pendentes', 'aprovar_pendente', 'editar_membro') else '' }}">Membros</a>
   {% endif %}
   {% if session.get('papel') == 'admin' %}
   <a href="{{ url_for('admin_usuarios') }}" class="{{ 'active' if request.endpoint == 'admin_usuarios' else '' }}">Usuários</a>

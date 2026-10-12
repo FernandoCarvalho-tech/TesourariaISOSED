@@ -155,5 +155,56 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS membros (
+            id SERIAL PRIMARY KEY,
+            dizimista_id INTEGER REFERENCES dizimistas (id),
+            nome TEXT NOT NULL,
+            sexo TEXT,
+            endereco TEXT,
+            numero TEXT,
+            bairro TEXT,
+            cep TEXT,
+            naturalidade TEXT,
+            data_nascimento DATE,
+            data_batizo DATE,
+            fone TEXT,
+            profissao TEXT,
+            rg TEXT,
+            cpf TEXT,
+            estado_civil TEXT,
+            nome_conjuge TEXT,
+            cargo_igreja TEXT,
+            funcao TEXT,
+            ativo BOOLEAN NOT NULL DEFAULT TRUE,
+            criado_em TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS membros_pendentes (
+            id SERIAL PRIMARY KEY,
+            nome TEXT NOT NULL,
+            sexo TEXT,
+            endereco TEXT,
+            numero TEXT,
+            bairro TEXT,
+            cep TEXT,
+            naturalidade TEXT,
+            data_nascimento DATE,
+            data_batizo DATE,
+            fone TEXT,
+            profissao TEXT,
+            rg TEXT,
+            cpf TEXT,
+            estado_civil TEXT,
+            nome_conjuge TEXT,
+            cargo_igreja TEXT,
+            funcao TEXT,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            criado_em TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
     conn.commit()
     conn.close()

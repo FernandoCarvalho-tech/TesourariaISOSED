@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadastro de Membro — ISOSED</title>
+<style>
+  :root { --primary: #1a4d8f; --accent: #2e8b3a; --flame: #e8650f; --bg: #f4f7fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: #222; }
+  header { background: var(--primary); color: white; padding: 14px 16px; text-align: center; }
+  header h1 { margin: 4px 0 0; font-size: 20px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .8; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  .card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  label { display: block; font-size: 13px; color: #555; margin: 12px 0 4px; font-weight: 600; }
+  label .req { color: #c0392b; }
+  label .hint { font-weight: normal; color: #888; font-size: 12px; }
+  input, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; }
+  input:focus, select:focus { outline: none; border-color: var(--primary); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  button { background: var(--flame); color: white; border: none; padding: 14px; border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%; margin-top: 8px; }
+  .obrig { font-size: 12px; color: #888; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Igreja ISOSED</h1>
+  <p>Formulário de Cadastro de Membro</p>
+</header>
+<main>
+  <p class="obrig">Campos marcados com <span style="color:#c0392b">*</span> são obrigatórios.</p>
+
+  <form method="POST">
+    <div class="card">
+      <h3 style="margin-top:0; color:var(--primary);">Dados Pessoais</h3>
+
+      <label>Nome completo <span class="req">*</span></label>
+      <input type="text" name="nome" required maxlength="200">
+
+      <label>Sexo <span class="req">*</span></label>
+      <select name="sexo" required>
+        <option value="">Selecione...</option>
+        <option>Masculino</option>
+        <option>Feminino</option>
+      </select>
+
+      <div class="row2">
+        <div>
+          <label>Data de Nascimento <span class="req">*</span></label>
+          <input type="date" name="data_nascimento" required>
+        </div>
+        <div>
+          <label>Data do Batismo</label>
+          <input type="date" name="data_batizo">
+        </div>
+      </div>
+
+      <label>Naturalidade <span class="req">*</span> <span class="hint">— cidade onde nasceu</span></label>
+      <input type="text" name="naturalidade" required maxlength="100">
+
+      <label>Estado Civil <span class="req">*</span></label>
+      <select name="estado_civil" required>
+        <option value="">Selecione...</option>
+        {% for ec in estados_civis %}
+        <option>{{ ec }}</option>
+        {% endfor %}
+      </select>
+
+      <label>Nome do Cônjuge</label>
+      <input type="text" name="nome_conjuge" maxlength="200">
+
+      <div class="row2">
+        <div>
+          <label>RG</label>
+          <input type="text" name="rg" maxlength="20">
+        </div>
+        <div>
+          <label>CPF</label>
+          <input type="text" name="cpf" maxlength="14" placeholder="000.000.000-00">
+        </div>
+      </div>
+
+      <label>Profissão</label>
+      <input type="text" name="profissao" maxlength="100">
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0; color:var(--primary);">Contato e Endereço</h3>
+
+      <label>Telefone / WhatsApp <span class="req">*</span></label>
+      <input type="tel" name="fone" required maxlength="20" placeholder="(00) 00000-0000">
+
+      <label>Endereço (rua / avenida) <span class="req">*</span></label>
+      <input type="text" name="endereco" required maxlength="200">
+
+      <div class="row2">
+        <div>
+          <label>Número <span class="req">*</span></label>
+          <input type="text" name="numero" required maxlength="10">
+        </div>
+        <div>
+          <label>CEP</label>
+          <input type="text" name="cep" maxlength="9" placeholder="00000-000">
+        </div>
+      </div>
+
+      <label>Bairro <span class="req">*</span></label>
+      <input type="text" name="bairro" required maxlength="100">
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0; color:var(--primary);">Atuação na Igreja</h3>
+
+      <label>Cargo na Igreja <span class="req">*</span> <span class="hint">— ex: Diácono, Pastor, Evangelista...</span></label>
+      <input type="text" name="cargo_igreja" required maxlength="100">
+
+      <label>Função <span class="req">*</span> <span class="hint">— ex: Líder dos Jovens, Líder do Louvor...</span></label>
+      <input type="text" name="funcao" required maxlength="100">
+    </div>
+
+    <button type="submit">Enviar Cadastro</button>
+  </form>
+</main>
+</body>
+</html>

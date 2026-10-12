@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Revisar Cadastro{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h2 style="margin:0;">Revisar Cadastro: {{ p.nome }}</h2>
+    <a href="{{ url_for('membros_pendentes') }}" class="btn secondary" style="margin-top:0;">← Voltar</a>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0; color:#1a4d8f;">Dados enviados pelo membro</h3>
+  <table style="font-size:14px;">
+    <tbody>
+      <tr><td style="font-weight:bold; width:40%; padding:6px 8px;">Nome</td><td style="padding:6px 8px;">{{ p.nome }}</td></tr>
+      <tr style="background:#f5f7fa;"><td style="font-weight:bold; padding:6px 8px;">Sexo</td><td style="padding:6px 8px;">{{ p.sexo or '-' }}</td></tr>
+      <tr><td style="font-weight:bold; padding:6px 8px;">Nascimento</td><td style="padding:6px 8px;">{{ p.data_nascimento or '-' }}</td></tr>
+      <tr style="background:#f5f7fa;"><td style="font-weight:bold; padding:6px 8px;">Naturalidade</td><td style="padding:6px 8px;">{{ p.naturalidade or '-' }}</td></tr>
+      <tr><td style="font-weight:bold; padding:6px 8px;">Estado Civil</td><td style="padding:6px 8px;">{{ p.estado_civil or '-' }}</td></tr>
+      <tr style="background:#f5f7fa;"><td style="font-weight:bold; padding:6px 8px;">Cônjuge</td><td style="padding:6px 8px;">{{ p.nome_conjuge or '-' }}</td></tr>
+      <tr><td style="font-weight:bold; padding:6px 8px;">Fone</td><td style="padding:6px 8px;">{{ p.fone or '-' }}</td></tr>
+      <tr style="background:#f5f7fa;"><td style="font-weight:bold; padding:6px 8px;">Endereço</td><td style="padding:6px 8px;">{{ p.endereco }}, {{ p.numero }} — {{ p.bairro }}{% if p.cep %} — CEP {{ p.cep }}{% endif %}</td></tr>
+      <tr><td style="font-weight:bold; padding:6px 8px;">Profissão</td><td style="padding:6px 8px;">{{ p.profissao or '-' }}</td></tr>
+      <tr style="background:#f5f7fa;"><td style="font-weight:bold; padding:6px 8px;">RG / CPF</td><td style="padding:6px 8px;">{{ p.rg or '-' }} / {{ p.cpf or '-' }}</td></tr>
+      <tr><td style="font-weight:bold; padding:6px 8px;">Data do Batismo</td><td style="padding:6px 8px;">{{ p.data_batizo or '-' }}</td></tr>
+      <tr style="background:#f5f7fa;"><td style="font-weight:bold; padding:6px 8px;">Cargo na Igreja</td><td style="padding:6px 8px;">{{ p.cargo_igreja or '-' }}</td></tr>
+      <tr><td style="font-weight:bold; padding:6px 8px;">Função</td><td style="padding:6px 8px;">{{ p.funcao or '-' }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0; color:#1a4d8f;">Confirmar cadastro</h3>
+  <form method="POST">
+    <p style="margin-top:0;">Escolha como registrar este membro:</p>
+
+    <label style="font-weight:600; margin-bottom:6px; display:block;">
+      <input type="radio" name="acao" value="novo" checked onchange="toggleVincular(this)">
+      Cadastrar como novo membro (cria novo dizimista)
+    </label>
+
+    <label style="font-weight:600; display:block;">
+      <input type="radio" name="acao" value="vincular" onchange="toggleVincular(this)">
+      Vincular a um dizimista já existente
+    </label>
+
+    <div id="div-vincular" style="display:none; margin-top:10px;">
+      <label>Dizimista existente <span style="font-size:12px; color:#888;">(o nome será atualizado para o do formulário)</span></label>
+      <select name="dizimista_id">
+        <option value="">Selecione...</option>
+        {% for d in dizimistas %}
+        <option value="{{ d.id }}">{{ d.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <button type="submit" style="margin-top:16px;">✅ Efetivar Cadastro</button>
+  </form>
+</div>
+
+<script>
+function toggleVincular(el) {
+  document.getElementById('div-vincular').style.display =
+    document.querySelector('input[name=acao]:checked').value === 'vincular' ? 'block' : 'none';
+}
+</script>
+{% endblock %}

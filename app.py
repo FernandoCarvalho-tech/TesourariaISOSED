@@ -1106,5 +1106,164 @@ def api_dizimistas():
 
 
 
+_ESTADOS_CIVIS = ["Solteiro(a)", "Casado(a)", "Divorciado(a)", "Viúvo(a)", "Separado(a)", "União Estável"]
+
+
+@app.route("/cadastro", methods=["GET", "POST"])
+def cadastro_publico():
+    if request.method == "POST":
+        campos = ["nome", "sexo", "endereco", "numero", "bairro", "cep",
+                  "naturalidade", "data_nascimento", "data_batizo", "fone",
+                  "profissao", "rg", "cpf", "estado_civil", "nome_conjuge",
+                  "cargo_igreja", "funcao"]
+        dados = {c: request.form.get(c, "").strip() or None for c in campos}
+        conn = get_conn()
+        conn.execute(
+            """INSERT INTO membros_pendentes
+               (nome,sexo,endereco,numero,bairro,cep,naturalidade,data_nascimento,
+                data_batizo,fone,profissao,rg,cpf,estado_civil,nome_conjuge,cargo_igreja,funcao)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            tuple(dados[c] for c in campos),
+        )
+        conn.commit()
+        conn.close()
+        return render_template("cadastro_publico_ok.html")
+    return render_template("cadastro_publico.html", estados_civis=_ESTADOS_CIVIS)
+
+
+@app.route("/admin/membros")
+@requer_papel("admin", "tesoureiro")
+def membros():
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT m.*, d.nome AS dizimista_nome
+           FROM membros m
+           LEFT JOIN dizimistas d ON d.id = m.dizimista_id
+           WHERE m.ativo = TRUE
+           ORDER BY m.nome"""
+    ).fetchall()
+    pendentes = conn.execute(
+        "SELECT COUNT(*) AS n FROM membros_pendentes WHERE status='pendente'"
+    ).fetchone()["n"]
+    conn.close()
+    return render_template("membros.html", membros=rows, pendentes=pendentes)
+
+
+@app.route("/admin/membros/pendentes")
+@requer_papel("admin")
+def membros_pendentes():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM membros_pendentes WHERE status='pendente' ORDER BY criado_em DESC"
+    ).fetchall()
+    conn.close()
+    return render_template("membros_pendentes.html", pendentes=rows)
+
+
+@app.route("/admin/membros/pendentes/<int:pid>/aprovar", methods=["GET", "POST"])
+@requer_papel("admin")
+def aprovar_pendente(pid):
+    conn = get_conn()
+    p = conn.execute("SELECT * FROM membros_pendentes WHERE id=?", (pid,)).fetchone()
+    if not p:
+        conn.close()
+        flash("Cadastro pendente não encontrado.", "error")
+        return redirect(url_for("membros_pendentes"))
+
+    dizimistas_lista = conn.execute(
+        "SELECT id, nome FROM dizimistas WHERE ativo=TRUE ORDER BY nome"
+    ).fetchall()
+
+    if request.method == "POST":
+        acao = request.form.get("acao")
+        vincular_id = request.form.get("dizimista_id") or None
+
+        if acao == "novo":
+            # Cria dizimista novo
+            cur = conn.execute(
+                "INSERT INTO dizimistas (nome) VALUES (?)", (p["nome"],)
+            )
+            diz_id = cur.lastrowid
+        else:
+            diz_id = int(vincular_id) if vincular_id else None
+            if diz_id:
+                conn.execute("UPDATE dizimistas SET nome=? WHERE id=?", (p["nome"], diz_id))
+
+        conn.execute(
+            """INSERT INTO membros
+               (dizimista_id,nome,sexo,endereco,numero,bairro,cep,naturalidade,
+                data_nascimento,data_batizo,fone,profissao,rg,cpf,
+                estado_civil,nome_conjuge,cargo_igreja,funcao)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (diz_id, p["nome"], p["sexo"], p["endereco"], p["numero"], p["bairro"],
+             p["cep"], p["naturalidade"], p["data_nascimento"], p["data_batizo"],
+             p["fone"], p["profissao"], p["rg"], p["cpf"],
+             p["estado_civil"], p["nome_conjuge"], p["cargo_igreja"], p["funcao"]),
+        )
+        conn.execute("UPDATE membros_pendentes SET status='aprovado' WHERE id=?", (pid,))
+        conn.commit()
+        conn.close()
+        flash(f"Membro '{p['nome']}' cadastrado com sucesso.", "success")
+        return redirect(url_for("membros_pendentes"))
+
+    conn.close()
+    return render_template("aprovar_pendente.html", p=p, dizimistas=dizimistas_lista,
+                           estados_civis=_ESTADOS_CIVIS)
+
+
+@app.route("/admin/membros/pendentes/<int:pid>/rejeitar", methods=["POST"])
+@requer_papel("admin")
+def rejeitar_pendente(pid):
+    conn = get_conn()
+    conn.execute("UPDATE membros_pendentes SET status='rejeitado' WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+    flash("Cadastro rejeitado.", "success")
+    return redirect(url_for("membros_pendentes"))
+
+
+@app.route("/admin/membros/<int:mid>/editar", methods=["GET", "POST"])
+@requer_papel("admin")
+def editar_membro(mid):
+    conn = get_conn()
+    m = conn.execute("SELECT * FROM membros WHERE id=?", (mid,)).fetchone()
+    if not m:
+        conn.close()
+        flash("Membro não encontrado.", "error")
+        return redirect(url_for("membros"))
+    if request.method == "POST":
+        conn.execute(
+            """UPDATE membros SET nome=?,sexo=?,endereco=?,numero=?,bairro=?,cep=?,
+               naturalidade=?,data_nascimento=?,data_batizo=?,fone=?,profissao=?,
+               rg=?,cpf=?,estado_civil=?,nome_conjuge=?,cargo_igreja=?,funcao=?
+               WHERE id=?""",
+            (request.form.get("nome"), request.form.get("sexo"),
+             request.form.get("endereco"), request.form.get("numero"),
+             request.form.get("bairro"), request.form.get("cep") or None,
+             request.form.get("naturalidade"), request.form.get("data_nascimento") or None,
+             request.form.get("data_batizo") or None, request.form.get("fone"),
+             request.form.get("profissao") or None, request.form.get("rg") or None,
+             request.form.get("cpf") or None, request.form.get("estado_civil"),
+             request.form.get("nome_conjuge") or None, request.form.get("cargo_igreja"),
+             request.form.get("funcao"), mid),
+        )
+        conn.commit()
+        conn.close()
+        flash("Membro atualizado.", "success")
+        return redirect(url_for("membros"))
+    conn.close()
+    return render_template("editar_membro.html", m=m, estados_civis=_ESTADOS_CIVIS)
+
+
+@app.route("/admin/membros/<int:mid>/toggle", methods=["POST"])
+@requer_papel("admin")
+def toggle_membro(mid):
+    conn = get_conn()
+    conn.execute("UPDATE membros SET ativo = NOT ativo WHERE id=?", (mid,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("membros"))
+
+
 if __name__ == "__main__":
     app.run(debug=True)
