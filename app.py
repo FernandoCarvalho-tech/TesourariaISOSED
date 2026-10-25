@@ -16,9 +16,14 @@ from reportlab.platypus import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from db import get_conn, init_db
+import logging
+
+import psycopg2
+
+from db import get_conn, init_db, check_db
 
 app = Flask(__name__)
+log = logging.getLogger("tesouraria")
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-troque-em-producao")
 
 TAXA_SEDE = 0.15
@@ -49,7 +54,7 @@ with app.app_context():
 
 @app.before_request
 def exigir_login():
-    rotas_publicas = {"login", "static", "manifest", "service_worker", "cadastro_publico"}
+    rotas_publicas = {"login", "static", "manifest", "service_worker", "cadastro_publico", "health"}
     if request.endpoint in rotas_publicas or request.endpoint is None:
         return
     if not session.get("logado"):
@@ -66,6 +71,26 @@ def requer_papel(*papeis):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
+
+@app.route("/health")
+def health():
+    """Health check público para monitor externo (UptimeRobot).
+
+    200 = app e banco respondendo; 503 = banco inacessível.
+    Não expõe detalhes do erro na resposta (só no log do servidor).
+    Aceita GET e HEAD (o Flask responde HEAD automaticamente).
+    """
+    try:
+        check_db()
+        corpo, status = {"status": "ok"}, 200
+    except psycopg2.Error as exc:
+        log.error("health: banco inacessivel: %s", exc.__class__.__name__)
+        corpo, status = {"status": "db_unavailable"}, 503
+    resp = jsonify(corpo)
+    resp.status_code = status
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/manifest.json")

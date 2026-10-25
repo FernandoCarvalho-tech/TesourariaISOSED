@@ -52,6 +52,26 @@ def get_conn():
     return _PGConnection(raw_conn)
 
 
+HEALTHCHECK_TIMEOUT_S = int(os.environ.get("HEALTHCHECK_TIMEOUT_S", "5"))
+
+
+def check_db() -> None:
+    """Verifica se o banco responde, com timeout curto.
+
+    Usado pela rota /health (monitor externo, ex.: UptimeRobot). Faz um
+    SELECT 1 real, para que o monitor detecte banco pausado/fora do ar e, de
+    quebra, gere atividade no Supabase free (que pausa por inatividade).
+    Levanta psycopg2.Error se não conectar ou não responder.
+    """
+    raw_conn = psycopg2.connect(DATABASE_URL, connect_timeout=HEALTHCHECK_TIMEOUT_S)
+    try:
+        with raw_conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+    finally:
+        raw_conn.close()
+
+
 def init_db():
     conn = get_conn()
     cur = conn._conn.cursor()
