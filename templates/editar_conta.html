@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>Editar Conta</h2>
-  <form method="POST">
+  <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Nome</label>
     <input type="text" name="nome" value="{{ conta.nome }}" required>
     <label>Tipo</label>

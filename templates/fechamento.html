@@ -5,9 +5,15 @@
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
     <h2 style="margin:0;">Fechamento Mensal</h2>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <a href="{{ url_for('fechamento_pdf', mes=mes) }}" class="btn" style="background:#e8650f; margin-top:0;">
-        ⬇ PDF deste mês
+      {% if travado %}
+      <a href="{{ url_for('fechamento_pdf', mes=mes) }}" class="btn" style="background:#2e8b3a; margin-top:0;">
+        ⬇ PDF oficial
       </a>
+      {% else %}
+      <a href="{{ url_for('fechamento_pdf', mes=mes) }}" class="btn" style="background:#e8650f; margin-top:0;">
+        ⬇ PDF prévia (conferência)
+      </a>
+      {% endif %}
       <button type="button" class="btn secondary" style="margin-top:0;" onclick="document.getElementById('form-multi-pdf').style.display=document.getElementById('form-multi-pdf').style.display==='none'?'flex':'none'">
         ⬇ PDF vários meses
       </button>
@@ -36,6 +42,83 @@
       <button type="submit">Calcular</button>
     </div>
   </form>
+</div>
+
+<div class="card" id="situacao">
+  {% if travado %}
+  <div style="background:#f0fdf4; border:1px solid #86efac; color:#166534; border-radius:8px; padding:12px 14px;">
+    <strong>✅ Fechamento de {{ mes_label }} efetivado</strong>
+    em {{ situacao.fechado_em.strftime('%d/%m/%Y %H:%M') if situacao.fechado_em else '' }}
+    por {{ situacao.fechado_por_nome or '—' }}.<br>
+    Os lançamentos deste mês estão travados: não é possível incluir, editar ou excluir.
+  </div>
+  {% if divergentes %}
+  <div style="background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; border-radius:8px; padding:12px 14px; margin-top:10px;">
+    <strong>⚠ Atenção:</strong> os valores atuais não batem com os congelados na efetivação
+    ({{ divergentes|join(', ') }}). Avise o administrador do sistema.
+  </div>
+  {% endif %}
+  {% if session.get('papel') == 'admin' %}
+  <details style="margin-top:14px;">
+    <summary style="cursor:pointer; font-weight:600; color:#991b1b;">Reabrir este mês</summary>
+    <form method="POST" action="{{ url_for('reabrir_fechamento') }}" style="margin-top:10px;"
+          onsubmit="return confirm('Reabrir o mês? Ele volta a aceitar alterações e o PDF volta a ser prévia.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mes" value="{{ mes }}">
+      <label>Motivo da reabertura <span style="font-weight:normal; color:#888; font-size:12px;">— fica registrado no histórico</span></label>
+      <textarea name="motivo" required minlength="10" maxlength="500" rows="3" style="width:100%;"
+                placeholder="Ex.: pastor identificou oferta de R$ 150,00 do dia 12 que não foi lançada"></textarea>
+      <label>Sua senha</label>
+      <input type="password" name="senha" required autocomplete="current-password" style="max-width:260px;">
+      <div><button type="submit" class="danger">Reabrir mês</button></div>
+    </form>
+  </details>
+  {% endif %}
+  {% else %}
+  <div style="background:#fffbeb; border:1px solid #fcd34d; color:#92400e; border-radius:8px; padding:12px 14px;">
+    <strong>📝 {{ mes_label }} em aberto — prévia.</strong>
+    Gere o PDF de prévia para o pastor conferir. Os valores ainda podem mudar e o PDF sai marcado como
+    <em>PRÉVIA — NÃO ENVIAR À SEDE</em>. Depois da conferência, efetive o fechamento para gerar o PDF oficial.
+    {% if situacao and situacao.status == 'reaberto' %}
+    <br><strong>Este mês foi reaberto</strong> — efetive novamente após as correções.
+    {% endif %}
+  </div>
+  {% if session.get('papel') in ('admin', 'tesoureiro') %}
+  <form method="POST" action="{{ url_for('efetivar_fechamento') }}" class="row" style="align-items:flex-end; gap:10px; margin-top:12px;"
+        onsubmit="return confirm('Efetivar o fechamento de {{ mes_label }}? Os lançamentos do mês serão travados.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="mes" value="{{ mes }}">
+    <div>
+      <label>Observação (opcional)</label>
+      <input type="text" name="observacao" maxlength="500" style="width:260px;" placeholder="Ex.: conferido com o pastor em 05/11">
+    </div>
+    <div>
+      <label>Sua senha</label>
+      <input type="password" name="senha" required autocomplete="current-password" style="width:180px;">
+    </div>
+    <div>
+      <button type="submit" style="background:#2e8b3a;">✔ Efetivar fechamento</button>
+    </div>
+  </form>
+  {% endif %}
+  {% endif %}
+
+  {% if historico %}
+  <h4 style="margin:16px 0 6px;">Histórico do mês</h4>
+  <table>
+    <thead><tr><th>Quando</th><th>Ação</th><th>Usuário</th><th>Motivo / observação</th></tr></thead>
+    <tbody>
+      {% for h in historico %}
+      <tr>
+        <td data-label="Quando">{{ h.criado_em.strftime('%d/%m/%Y %H:%M') }}</td>
+        <td data-label="Ação">{{ 'Efetivado' if h.acao == 'efetivar' else 'Reaberto' }}</td>
+        <td data-label="Usuário">{{ h.usuario_nome }}</td>
+        <td data-label="Motivo">{{ h.motivo or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 </div>
 
 <div class="card">
@@ -92,9 +175,10 @@
     </tbody>
   </table>
 
+  {% if not travado and session.get('papel') in ('admin', 'tesoureiro') %}
   <div style="margin-top:14px;">
     <h4 style="margin-bottom:8px;">Dízimo do Pastor — registrar para o mês</h4>
-    <form method="POST" action="{{ url_for('salvar_dizimo_pastor') }}" class="row" style="align-items:flex-end; gap:10px;">
+    <form method="POST" action="{{ url_for('salvar_dizimo_pastor') }}" class="row" style="align-items:flex-end; gap:10px;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="mes" value="{{ mes }}">
       <div>
         <label>Valor (R$)</label>
@@ -109,6 +193,7 @@
       </div>
     </form>
   </div>
+  {% endif %}
 
   <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:18px;">
     <div class="saldo-card" style="background:#eef3fb;">

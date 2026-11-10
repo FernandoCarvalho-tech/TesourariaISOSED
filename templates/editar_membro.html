@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2 style="margin-top:0;">Editar Membro</h2>
-  <form method="POST" class="row" style="flex-direction:column; gap:0;">
+  <form method="POST" class="row" style="flex-direction:column; gap:0;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
       <div>

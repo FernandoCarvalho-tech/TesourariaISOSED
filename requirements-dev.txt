@@ -1,0 +1,5 @@
+# Só para desenvolvimento/testes (não vai para o Render).
+-r requirements.txt
+pytest==9.2.0
+pypdf==7.0.0
+pyflakes==4.1.0

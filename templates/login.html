@@ -25,7 +25,7 @@
       <div class="flash">{{ msg }}</div>
     {% endfor %}
   {% endwith %}
-  <form method="POST" autocomplete="off">
+  <form method="POST" autocomplete="off"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Usuário</label>
     <input type="text" name="usuario" autofocus required autocomplete="off">
     <label>Senha</label>

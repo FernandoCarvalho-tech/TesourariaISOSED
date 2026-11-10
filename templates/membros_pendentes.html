@@ -24,7 +24,7 @@
         <td style="white-space:nowrap;">
           <a href="{{ url_for('aprovar_pendente', pid=p.id) }}" class="btn" style="margin-top:0; padding:4px 10px; font-size:13px;">Revisar</a>
           <form method="POST" action="{{ url_for('rejeitar_pendente', pid=p.id) }}" style="display:inline;"
-                onsubmit="return confirm('Rejeitar o cadastro de {{ p.nome }}?');">
+                data-nome="{{ p.nome }}" onsubmit="return confirm('Rejeitar o cadastro de ' + this.dataset.nome + '?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn danger" style="margin-top:0; padding:4px 10px; font-size:13px;">Rejeitar</button>
           </form>
         </td>
