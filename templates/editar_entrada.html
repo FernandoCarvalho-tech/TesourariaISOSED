@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>Editar Entrada</h2>
-  <form method="POST" id="form-entrada">
+  <form method="POST" id="form-entrada"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Tipo</label>
     <select name="tipo" id="tipo" required onchange="atualizarTipo()">
       <option value="dizimo" {{ 'selected' if entrada.tipo == 'dizimo' else '' }}>Dízimo</option>

@@ -37,7 +37,7 @@
         {% if session.get('papel') == 'admin' %}
         <td style="white-space:nowrap;">
           <a href="{{ url_for('editar_membro', mid=m.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a>
-          <form method="POST" action="{{ url_for('toggle_membro', mid=m.id) }}" style="display:inline;">
+          <form method="POST" action="{{ url_for('toggle_membro', mid=m.id) }}" style="display:inline;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn danger" style="margin-top:0; padding:4px 10px; font-size:13px;">Inativar</button>
           </form>
         </td>

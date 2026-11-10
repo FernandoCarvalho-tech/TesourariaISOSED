@@ -4,11 +4,13 @@
 <div class="card">
   <h2>Minha Conta</h2>
   <p>Usuário: <strong>{{ session.get('usuario_nome') }}</strong> &middot; Papel: <span class="badge {{ session.get('papel') }}">{{ session.get('papel') }}</span></p>
-  <form method="POST" autocomplete="off">
+  <form method="POST" autocomplete="off"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Senha atual</label>
     <input type="password" name="senha_atual" required autocomplete="off">
-    <label>Nova senha</label>
-    <input type="password" name="nova_senha" required autocomplete="off">
+    <label>Nova senha <span style="font-weight:normal; color:#888; font-size:12px;">— mínimo de 8 caracteres, evite senhas óbvias</span></label>
+    <input type="password" name="nova_senha" required minlength="8" autocomplete="new-password">
+    <label>Confirmar nova senha</label>
+    <input type="password" name="confirmar_senha" required minlength="8" autocomplete="new-password">
     <button type="submit">Atualizar Senha</button>
   </form>
 </div>

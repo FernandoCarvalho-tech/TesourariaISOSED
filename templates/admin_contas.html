@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>Contas</h2>
-  <form method="POST" class="row">
+  <form method="POST" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="nome" placeholder="Nome da conta" required>
     <select name="tipo" required>
       <option value="dinheiro">Dinheiro</option>
@@ -26,7 +26,7 @@
         <td data-label="Status"><span class="badge {{ 'ativo' if c.ativo else 'inativo' }}">{{ 'Ativa' if c.ativo else 'Inativa' }}</span></td>
         <td data-label="Ação">
           <a href="{{ url_for('editar_conta', conta_id=c.id) }}" class="btn secondary">Editar</a>
-          <form method="POST" action="{{ url_for('toggle_conta', conta_id=c.id) }}" style="display:inline;">
+          <form method="POST" action="{{ url_for('toggle_conta', conta_id=c.id) }}" style="display:inline;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="secondary">{{ 'Desativar' if c.ativo else 'Ativar' }}</button>
           </form>
         </td>

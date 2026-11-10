@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>Novo Usuário</h2>
-  <form method="POST" class="row">
+  <form method="POST" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="nome" placeholder="Nome completo" required>
     <input type="text" name="usuario" placeholder="Usuário (login)" required>
     <input type="password" name="senha" placeholder="Senha" required>
@@ -28,7 +28,7 @@
         <td data-label="Status"><span class="badge {{ 'ativo' if u.ativo else 'inativo' }}">{{ 'Ativo' if u.ativo else 'Inativo' }}</span></td>
         <td data-label="Ação">
           {% if u.id != session.get('usuario_id') %}
-          <form method="POST" action="{{ url_for('toggle_usuario', usuario_id=u.id) }}">
+          <form method="POST" action="{{ url_for('toggle_usuario', usuario_id=u.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="secondary">{{ 'Desativar' if u.ativo else 'Ativar' }}</button>
           </form>
           {% else %}

@@ -1,34 +1,59 @@
+"""Tesouraria ISOSED — aplicação Flask (caixa, fechamento mensal e membros).
+
+Configuração: variáveis de ambiente (ver .env.example e README.md).
+Versão 1.1 (2026-11): segurança (CSRF, limite de tentativas, sessão,
+cabeçalhos, senha) e fechamento com prévia/efetivação/reabertura.
+"""
+import calendar
 import io
-import os
+import logging
+import re
 from datetime import date
+from decimal import Decimal
 from functools import wraps
+from xml.sax.saxutils import escape as escapar_xml
 
 from flask import (
     Flask, render_template, request, redirect, url_for, flash, session, jsonify,
-    make_response,
+    make_response, current_app,
 )
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Flowable,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
-import logging
-
 import psycopg2
+import psycopg2.errors
 
-from db import get_conn, init_db, check_db
+import fechamentos
+from config import aplicar_config
+from db import get_conn, init_db, check_db, fechar_conexoes_pendentes
+from seguranca import (
+    init_seguranca, limiter, senha_e_fraca, url_destino_segura, validar_nova_senha,
+    verificar_turnstile,
+)
+from validacao import (
+    ESTADOS_CIVIS, arredondar, ler_data, ler_valor, mes_de, mes_valido,
+    validar_cadastro_membro,
+)
 
 app = Flask(__name__)
 log = logging.getLogger("tesouraria")
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-troque-em-producao")
+aplicar_config(app)          # falha ao subir se SECRET_KEY não estiver configurada
+init_seguranca(app)
+app.teardown_appcontext(fechar_conexoes_pendentes)
 
-TAXA_SEDE = 0.15
-TAXA_FUNDO = 0.03
-TAXA_REGIONAL = 0.05
+TAXA_SEDE = Decimal("0.15")
+TAXA_FUNDO = Decimal("0.03")
+TAXA_REGIONAL = Decimal("0.05")
+TIPOS_ENTRADA = ("dizimo", "oferta_nominal", "oferta_coletiva")
+PAPEIS = ("admin", "tesoureiro", "visualizador")
+TIPOS_CONTA = ("dinheiro", "moedas", "banco", "outro")
+_RE_LOGIN = re.compile(r"^[A-Za-z0-9._-]{3,50}$")
 
 CATEGORIAS_SAIDA = [
     "Aluguel",
@@ -52,13 +77,49 @@ with app.app_context():
     init_db()
 
 
+_ROTAS_PUBLICAS = {"login", "static", "manifest", "service_worker", "cadastro_publico", "health"}
+# Liberadas enquanto o usuário é obrigado a trocar uma senha fraca.
+_ROTAS_TROCA_SENHA = _ROTAS_PUBLICAS | {"minha_conta", "logout"}
+
+
 @app.before_request
 def exigir_login():
-    rotas_publicas = {"login", "static", "manifest", "service_worker", "cadastro_publico", "health"}
-    if request.endpoint in rotas_publicas or request.endpoint is None:
+    if request.endpoint in _ROTAS_PUBLICAS or request.endpoint is None:
         return
     if not session.get("logado"):
-        return redirect(url_for("login", next=request.path))
+        return redirect(url_for("login", next=request.full_path.rstrip("?")))
+    if session.get("trocar_senha") and request.endpoint not in _ROTAS_TROCA_SENHA:
+        flash("Por segurança, defina uma nova senha antes de continuar.", "error")
+        return redirect(url_for("minha_conta"))
+
+
+@app.errorhandler(psycopg2.errors.RaiseException)
+def _mes_fechado_no_banco(exc):
+    """Trigger do banco barrou escrita em mês efetivado (segunda camada da trava)."""
+    mensagem = str(getattr(exc, "pgerror", "") or exc)
+    achado = re.search(r"MES_FECHADO:(\d{4}-\d{2})", mensagem)
+    if not achado:
+        raise exc
+    log.warning("escrita_barrada_trigger mes=%s path=%s", achado.group(1), request.path)
+    flash(fechamentos.MesFechadoError(achado.group(1)).mensagem, "error")
+    return redirect(url_destino_segura(request.referrer) or url_for("extrato"))
+
+
+def _ip_cliente() -> str:
+    return request.remote_addr or ""
+
+
+def _confere_senha(conn, usuario_id: int, senha: str) -> bool:
+    """Reautenticação para ações sensíveis (efetivar/reabrir fechamento)."""
+    row = conn.execute(
+        "SELECT senha_hash FROM usuarios WHERE id=? AND ativo=TRUE", (usuario_id,)
+    ).fetchone()
+    return bool(row) and check_password_hash(row["senha_hash"], senha)
+
+
+def _mes_do_request(nome: str = "mes") -> str:
+    """Mês válido vindo da query string ou o mês atual."""
+    return mes_valido(request.args.get(nome)) or mes_de(date.today())
 
 
 def requer_papel(*papeis):
@@ -103,7 +164,19 @@ def service_worker():
     return app.send_static_file("service-worker.js")
 
 
+def _chave_limite_login_usuario() -> str:
+    return "login-usuario:" + request.form.get("usuario", "").strip().lower()
+
+
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["LIMITE_LOGIN_IP"], methods=["POST"])
+@limiter.limit(
+    lambda: current_app.config["LIMITE_LOGIN_USUARIO"],
+    key_func=_chave_limite_login_usuario,
+    methods=["POST"],
+    # Só tentativas que falharam contam (o login certo responde com redirect).
+    deduct_when=lambda resp: resp.status_code == 200,
+)
 def login():
     if request.method == "POST":
         usuario = request.form.get("usuario", "").strip()
@@ -114,12 +187,20 @@ def login():
         ).fetchone()
         conn.close()
         if row and check_password_hash(row["senha_hash"], senha):
+            session.clear()  # evita fixação de sessão
+            session.permanent = True
             session["logado"] = True
             session["usuario_id"] = row["id"]
             session["usuario_nome"] = row["nome"]
             session["papel"] = row["papel"]
-            destino = request.args.get("next") or url_for("dashboard")
+            log.info("login_ok usuario_id=%s ip=%s", row["id"], _ip_cliente())
+            if senha_e_fraca(senha):
+                session["trocar_senha"] = True
+                flash("Sua senha é fraca ou padrão. Defina uma nova senha para continuar.", "error")
+                return redirect(url_for("minha_conta"))
+            destino = url_destino_segura(request.args.get("next")) or url_for("dashboard")
             return redirect(destino)
+        log.warning("login_falhou usuario=%s ip=%s", usuario[:50], _ip_cliente())
         flash("Usuário ou senha inválidos.", "error")
     return render_template("login.html")
 
@@ -136,9 +217,9 @@ def _contas_ativas(conn):
 
 def _totais_por_tipo(entradas):
     """Recebe lista de rows de entradas e retorna dict com totais por tipo e o bruto geral."""
-    totais = {"dizimo": 0.0, "oferta_nominal": 0.0, "oferta_coletiva": 0.0}
+    totais = {"dizimo": Decimal("0.00"), "oferta_nominal": Decimal("0.00"), "oferta_coletiva": Decimal("0.00")}
     for e in entradas:
-        totais[e["tipo"]] = totais.get(e["tipo"], 0.0) + float(e["valor"])
+        totais[e["tipo"]] = totais.get(e["tipo"], Decimal("0.00")) + Decimal(e["valor"])
     totais["total_ofertas"] = totais["oferta_nominal"] + totais["oferta_coletiva"]
     totais["total_bruto"] = totais["dizimo"] + totais["total_ofertas"]
     return totais
@@ -164,8 +245,7 @@ def _saldo_conta(conn, conta_id):
 
 @app.route("/")
 def dashboard():
-    hoje = date.today()
-    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
+    mes = _mes_do_request()
 
     conn = get_conn()
     contas = _contas_ativas(conn)
@@ -207,37 +287,109 @@ def dashboard():
     )
 
 
+def _id_ou_none(valor):
+    """Converte id de formulário em int; None se vazio ou inválido."""
+    try:
+        return int(valor) if valor not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _ler_form_entrada(form, data_padrao=None):
+    """Lê e valida o formulário de entrada. Retorna (dados, erros)."""
+    erros = []
+    tipo = form.get("tipo")
+    if tipo not in TIPOS_ENTRADA:
+        erros.append("Tipo de entrada inválido.")
+    valor = ler_valor(form.get("valor"))
+    if valor is None:
+        erros.append("Valor inválido.")
+    conta_id = _id_ou_none(form.get("conta_id"))
+    if conta_id is None:
+        erros.append("Selecione a conta.")
+    data_lanc = ler_data(form.get("data")) or data_padrao
+    if data_lanc is None:
+        erros.append("Data inválida.")
+    dizimista_id = _id_ou_none(form.get("dizimista_id"))
+    nome_avulso = (form.get("nome_avulso") or "").strip()[:200] or None
+    if tipo == "oferta_coletiva":
+        dizimista_id = None
+        nome_avulso = None
+    dados = dict(tipo=tipo, dizimista_id=dizimista_id, nome_avulso=nome_avulso, valor=valor,
+                 conta_id=conta_id, data=data_lanc,
+                 observacao=(form.get("observacao") or "").strip()[:500] or None)
+    return dados, erros
+
+
+def _ler_form_saida(form, data_padrao=None):
+    erros = []
+    categoria = form.get("categoria", _CATEGORIA_FALLBACK)
+    if categoria not in CATEGORIAS_SAIDA:
+        categoria = _CATEGORIA_FALLBACK
+    motivo = (form.get("motivo") or "").strip()[:300]
+    valor = ler_valor(form.get("valor"))
+    if not motivo or valor is None:
+        erros.append("Preencha a descrição e um valor válido.")
+    conta_id = _id_ou_none(form.get("conta_id"))
+    if conta_id is None:
+        erros.append("Selecione a conta.")
+    data_lanc = ler_data(form.get("data")) or data_padrao
+    if data_lanc is None:
+        erros.append("Data inválida.")
+    dados = dict(categoria=categoria, motivo=motivo, valor=valor, conta_id=conta_id, data=data_lanc,
+                 observacao=(form.get("observacao") or "").strip()[:500] or None)
+    return dados, erros
+
+
+def _ler_form_transferencia(form, data_padrao=None):
+    erros = []
+    origem = _id_ou_none(form.get("conta_origem_id"))
+    destino = _id_ou_none(form.get("conta_destino_id"))
+    valor = ler_valor(form.get("valor"))
+    if valor is None or origem is None or destino is None or origem == destino:
+        erros.append("Verifique os valores: contas devem ser diferentes e valor maior que zero.")
+    data_lanc = ler_data(form.get("data")) or data_padrao
+    if data_lanc is None:
+        erros.append("Data inválida.")
+    dados = dict(origem=origem, destino=destino, valor=valor, data=data_lanc,
+                 motivo=(form.get("motivo") or "").strip()[:300] or None)
+    return dados, erros
+
+
+def _bloqueio_mes(conn, *referencias):
+    """Retorna a mensagem de bloqueio se alguma data cair em mês efetivado."""
+    try:
+        fechamentos.garantir_meses_abertos(conn, referencias)
+    except fechamentos.MesFechadoError as exc:
+        return exc.mensagem
+    return None
+
+
+def _flash_saldo_negativo(saldo, texto_conta):
+    if saldo < 0:
+        valor_fmt = f"{saldo:.2f}".replace(".", ",")
+        flash(f"Atenção: {texto_conta} ficou com saldo negativo (R$ {valor_fmt})", "error")
+
+
 @app.route("/entradas/nova", methods=["GET", "POST"])
 @requer_papel("admin", "tesoureiro")
 def nova_entrada():
     conn = get_conn()
     if request.method == "POST":
-        tipo = request.form.get("tipo")
-        dizimista_id = request.form.get("dizimista_id") or None
-        nome_avulso = request.form.get("nome_avulso", "").strip() or None
-        valor = request.form.get("valor", "0").replace(",", ".")
-        conta_id = request.form.get("conta_id")
-        data_lanc = request.form.get("data") or date.today().isoformat()
-        observacao = request.form.get("observacao", "").strip() or None
-
-        if tipo == "oferta_coletiva":
-            dizimista_id = None
-            nome_avulso = None
-
-        try:
-            valor_f = float(valor)
-            if valor_f <= 0:
-                raise ValueError
-        except ValueError:
-            flash("Valor inválido.", "error")
+        dados, erros = _ler_form_entrada(request.form, data_padrao=date.today())
+        bloqueio = None if erros else _bloqueio_mes(conn, dados["data"])
+        if erros or bloqueio:
+            conn.close()
+            for msg in erros or [bloqueio]:
+                flash(msg, "error")
             return redirect(url_for("nova_entrada"))
 
         conn.execute(
             """INSERT INTO entradas
                (tipo, dizimista_id, nome_avulso, valor, conta_id, data, observacao, usuario_id)
                VALUES (?,?,?,?,?,?,?,?)""",
-            (tipo, dizimista_id, nome_avulso, valor_f, conta_id, data_lanc, observacao,
-             session["usuario_id"]),
+            (dados["tipo"], dados["dizimista_id"], dados["nome_avulso"], dados["valor"],
+             dados["conta_id"], dados["data"], dados["observacao"], session["usuario_id"]),
         )
         conn.commit()
         conn.close()
@@ -258,39 +410,36 @@ def nova_entrada():
 @requer_papel("admin")
 def editar_entrada(entrada_id):
     conn = get_conn()
+    entrada = conn.execute("SELECT * FROM entradas WHERE id=?", (entrada_id,)).fetchone()
+    if not entrada:
+        conn.close()
+        flash("Entrada não encontrada.", "error")
+        return redirect(url_for("extrato"))
+    bloqueio = _bloqueio_mes(conn, entrada["data"])
+    if bloqueio:
+        conn.close()
+        flash(bloqueio, "error")
+        return redirect(url_for("extrato"))
+
     if request.method == "POST":
-        tipo = request.form.get("tipo")
-        dizimista_id = request.form.get("dizimista_id") or None
-        nome_avulso = request.form.get("nome_avulso", "").strip() or None
-        valor = request.form.get("valor", "0").replace(",", ".")
-        conta_id = request.form.get("conta_id")
-        data_lanc = request.form.get("data")
-        observacao = request.form.get("observacao", "").strip() or None
-        if tipo == "oferta_coletiva":
-            dizimista_id = None
-            nome_avulso = None
-        try:
-            valor_f = float(valor)
-            if valor_f <= 0:
-                raise ValueError
-        except ValueError:
-            flash("Valor inválido.", "error")
+        dados, erros = _ler_form_entrada(request.form)
+        bloqueio = None if erros else _bloqueio_mes(conn, dados["data"])
+        if erros or bloqueio:
+            conn.close()
+            for msg in erros or [bloqueio]:
+                flash(msg, "error")
             return redirect(url_for("editar_entrada", entrada_id=entrada_id))
         conn.execute(
             """UPDATE entradas SET tipo=?, dizimista_id=?, nome_avulso=?, valor=?,
                conta_id=?, data=?, observacao=? WHERE id=?""",
-            (tipo, dizimista_id, nome_avulso, valor_f, conta_id, data_lanc, observacao, entrada_id),
+            (dados["tipo"], dados["dizimista_id"], dados["nome_avulso"], dados["valor"],
+             dados["conta_id"], dados["data"], dados["observacao"], entrada_id),
         )
         conn.commit()
         conn.close()
         flash("Entrada atualizada com sucesso.", "success")
         return redirect(url_for("extrato"))
 
-    entrada = conn.execute("SELECT * FROM entradas WHERE id=?", (entrada_id,)).fetchone()
-    if not entrada:
-        conn.close()
-        flash("Entrada não encontrada.", "error")
-        return redirect(url_for("extrato"))
     contas = _contas_ativas(conn)
     dizimistas = conn.execute("SELECT * FROM dizimistas WHERE ativo=TRUE ORDER BY nome").fetchall()
     conn.close()
@@ -301,9 +450,16 @@ def editar_entrada(entrada_id):
 @requer_papel("admin")
 def excluir_entrada(entrada_id):
     conn = get_conn()
+    entrada = conn.execute("SELECT data FROM entradas WHERE id=?", (entrada_id,)).fetchone()
+    bloqueio = _bloqueio_mes(conn, entrada["data"]) if entrada else None
+    if bloqueio:
+        conn.close()
+        flash(bloqueio, "error")
+        return redirect(url_for("extrato"))
     conn.execute("DELETE FROM entradas WHERE id=?", (entrada_id,))
     conn.commit()
     conn.close()
+    log.info("entrada_excluida id=%s usuario_id=%s", entrada_id, session.get("usuario_id"))
     flash("Entrada excluída.", "success")
     return redirect(url_for("extrato"))
 
@@ -313,35 +469,25 @@ def excluir_entrada(entrada_id):
 def nova_saida():
     conn = get_conn()
     if request.method == "POST":
-        categoria = request.form.get("categoria", _CATEGORIA_FALLBACK)
-        motivo = request.form.get("motivo", "").strip()
-        valor = request.form.get("valor", "0").replace(",", ".")
-        conta_id = request.form.get("conta_id")
-        data_lanc = request.form.get("data") or date.today().isoformat()
-        observacao = request.form.get("observacao", "").strip() or None
-
-        if categoria not in CATEGORIAS_SAIDA:
-            categoria = _CATEGORIA_FALLBACK
-        try:
-            valor_f = float(valor)
-            if valor_f <= 0 or not motivo:
-                raise ValueError
-        except ValueError:
-            flash("Preencha a descrição e um valor válido.", "error")
+        dados, erros = _ler_form_saida(request.form, data_padrao=date.today())
+        bloqueio = None if erros else _bloqueio_mes(conn, dados["data"])
+        if erros or bloqueio:
+            conn.close()
+            for msg in erros or [bloqueio]:
+                flash(msg, "error")
             return redirect(url_for("nova_saida"))
 
         conn.execute(
             """INSERT INTO saidas (categoria, motivo, valor, conta_id, data, observacao, usuario_id)
                VALUES (?,?,?,?,?,?,?)""",
-            (categoria, motivo, valor_f, conta_id, data_lanc, observacao, session["usuario_id"]),
+            (dados["categoria"], dados["motivo"], dados["valor"], dados["conta_id"],
+             dados["data"], dados["observacao"], session["usuario_id"]),
         )
         conn.commit()
-        saldo_atual = _saldo_conta(conn, conta_id)
+        saldo_atual = _saldo_conta(conn, dados["conta_id"])
         conn.close()
         flash("Saída registrada com sucesso.", "success")
-        if saldo_atual < 0:
-            valor_fmt = f"{saldo_atual:.2f}".replace(".", ",")
-            flash(f"Atenção: a conta selecionada ficou com saldo negativo (R$ {valor_fmt})", "error")
+        _flash_saldo_negativo(saldo_atual, "a conta selecionada")
         return redirect(url_for("nova_saida"))
 
     contas = _contas_ativas(conn)
@@ -353,36 +499,35 @@ def nova_saida():
 @requer_papel("admin")
 def editar_saida(saida_id):
     conn = get_conn()
+    saida = conn.execute("SELECT * FROM saidas WHERE id=?", (saida_id,)).fetchone()
+    if not saida:
+        conn.close()
+        flash("Saída não encontrada.", "error")
+        return redirect(url_for("extrato"))
+    bloqueio = _bloqueio_mes(conn, saida["data"])
+    if bloqueio:
+        conn.close()
+        flash(bloqueio, "error")
+        return redirect(url_for("extrato"))
+
     if request.method == "POST":
-        categoria = request.form.get("categoria", _CATEGORIA_FALLBACK)
-        motivo = request.form.get("motivo", "").strip()
-        valor = request.form.get("valor", "0").replace(",", ".")
-        conta_id = request.form.get("conta_id")
-        data_lanc = request.form.get("data")
-        observacao = request.form.get("observacao", "").strip() or None
-        if categoria not in CATEGORIAS_SAIDA:
-            categoria = _CATEGORIA_FALLBACK
-        try:
-            valor_f = float(valor)
-            if valor_f <= 0 or not motivo:
-                raise ValueError
-        except ValueError:
-            flash("Preencha a descrição e um valor válido.", "error")
+        dados, erros = _ler_form_saida(request.form)
+        bloqueio = None if erros else _bloqueio_mes(conn, dados["data"])
+        if erros or bloqueio:
+            conn.close()
+            for msg in erros or [bloqueio]:
+                flash(msg, "error")
             return redirect(url_for("editar_saida", saida_id=saida_id))
         conn.execute(
             "UPDATE saidas SET categoria=?, motivo=?, valor=?, conta_id=?, data=?, observacao=? WHERE id=?",
-            (categoria, motivo, valor_f, conta_id, data_lanc, observacao, saida_id),
+            (dados["categoria"], dados["motivo"], dados["valor"], dados["conta_id"],
+             dados["data"], dados["observacao"], saida_id),
         )
         conn.commit()
         conn.close()
         flash("Saída atualizada com sucesso.", "success")
         return redirect(url_for("extrato"))
 
-    saida = conn.execute("SELECT * FROM saidas WHERE id=?", (saida_id,)).fetchone()
-    if not saida:
-        conn.close()
-        flash("Saída não encontrada.", "error")
-        return redirect(url_for("extrato"))
     contas = _contas_ativas(conn)
     conn.close()
     return render_template("editar_saida.html", saida=saida, contas=contas, categorias=CATEGORIAS_SAIDA)
@@ -392,9 +537,16 @@ def editar_saida(saida_id):
 @requer_papel("admin")
 def excluir_saida(saida_id):
     conn = get_conn()
+    saida = conn.execute("SELECT data FROM saidas WHERE id=?", (saida_id,)).fetchone()
+    bloqueio = _bloqueio_mes(conn, saida["data"]) if saida else None
+    if bloqueio:
+        conn.close()
+        flash(bloqueio, "error")
+        return redirect(url_for("extrato"))
     conn.execute("DELETE FROM saidas WHERE id=?", (saida_id,))
     conn.commit()
     conn.close()
+    log.info("saida_excluida id=%s usuario_id=%s", saida_id, session.get("usuario_id"))
     flash("Saída excluída.", "success")
     return redirect(url_for("extrato"))
 
@@ -404,33 +556,26 @@ def excluir_saida(saida_id):
 def nova_transferencia():
     conn = get_conn()
     if request.method == "POST":
-        origem = request.form.get("conta_origem_id")
-        destino = request.form.get("conta_destino_id")
-        valor = request.form.get("valor", "0").replace(",", ".")
-        data_lanc = request.form.get("data") or date.today().isoformat()
-        motivo = request.form.get("motivo", "").strip() or None
-
-        try:
-            valor_f = float(valor)
-            if valor_f <= 0 or origem == destino:
-                raise ValueError
-        except ValueError:
-            flash("Verifique os valores: contas devem ser diferentes e valor maior que zero.", "error")
+        dados, erros = _ler_form_transferencia(request.form, data_padrao=date.today())
+        bloqueio = None if erros else _bloqueio_mes(conn, dados["data"])
+        if erros or bloqueio:
+            conn.close()
+            for msg in erros or [bloqueio]:
+                flash(msg, "error")
             return redirect(url_for("nova_transferencia"))
 
         conn.execute(
             """INSERT INTO transferencias
                (conta_origem_id, conta_destino_id, valor, data, motivo, usuario_id)
                VALUES (?,?,?,?,?,?)""",
-            (origem, destino, valor_f, data_lanc, motivo, session["usuario_id"]),
+            (dados["origem"], dados["destino"], dados["valor"], dados["data"], dados["motivo"],
+             session["usuario_id"]),
         )
         conn.commit()
-        saldo_origem = _saldo_conta(conn, origem)
+        saldo_origem = _saldo_conta(conn, dados["origem"])
         conn.close()
         flash("Transferência registrada com sucesso.", "success")
-        if saldo_origem < 0:
-            valor_fmt = f"{saldo_origem:.2f}".replace(".", ",")
-            flash(f"Atenção: a conta de origem ficou com saldo negativo (R$ {valor_fmt})", "error")
+        _flash_saldo_negativo(saldo_origem, "a conta de origem")
         return redirect(url_for("nova_transferencia"))
 
     contas = _contas_ativas(conn)
@@ -442,34 +587,35 @@ def nova_transferencia():
 @requer_papel("admin")
 def editar_transferencia(transf_id):
     conn = get_conn()
+    transf = conn.execute("SELECT * FROM transferencias WHERE id=?", (transf_id,)).fetchone()
+    if not transf:
+        conn.close()
+        flash("Transferência não encontrada.", "error")
+        return redirect(url_for("extrato"))
+    bloqueio = _bloqueio_mes(conn, transf["data"])
+    if bloqueio:
+        conn.close()
+        flash(bloqueio, "error")
+        return redirect(url_for("extrato"))
+
     if request.method == "POST":
-        origem = request.form.get("conta_origem_id")
-        destino = request.form.get("conta_destino_id")
-        valor = request.form.get("valor", "0").replace(",", ".")
-        data_lanc = request.form.get("data")
-        motivo = request.form.get("motivo", "").strip() or None
-        try:
-            valor_f = float(valor)
-            if valor_f <= 0 or origem == destino:
-                raise ValueError
-        except ValueError:
-            flash("Verifique os valores: contas devem ser diferentes e valor maior que zero.", "error")
+        dados, erros = _ler_form_transferencia(request.form)
+        bloqueio = None if erros else _bloqueio_mes(conn, dados["data"])
+        if erros or bloqueio:
+            conn.close()
+            for msg in erros or [bloqueio]:
+                flash(msg, "error")
             return redirect(url_for("editar_transferencia", transf_id=transf_id))
         conn.execute(
             """UPDATE transferencias SET conta_origem_id=?, conta_destino_id=?,
                valor=?, data=?, motivo=? WHERE id=?""",
-            (origem, destino, valor_f, data_lanc, motivo, transf_id),
+            (dados["origem"], dados["destino"], dados["valor"], dados["data"], dados["motivo"], transf_id),
         )
         conn.commit()
         conn.close()
         flash("Transferência atualizada com sucesso.", "success")
         return redirect(url_for("extrato"))
 
-    transf = conn.execute("SELECT * FROM transferencias WHERE id=?", (transf_id,)).fetchone()
-    if not transf:
-        conn.close()
-        flash("Transferência não encontrada.", "error")
-        return redirect(url_for("extrato"))
     contas = _contas_ativas(conn)
     conn.close()
     return render_template("editar_transferencia.html", transf=transf, contas=contas)
@@ -479,9 +625,16 @@ def editar_transferencia(transf_id):
 @requer_papel("admin")
 def excluir_transferencia(transf_id):
     conn = get_conn()
+    transf = conn.execute("SELECT data FROM transferencias WHERE id=?", (transf_id,)).fetchone()
+    bloqueio = _bloqueio_mes(conn, transf["data"]) if transf else None
+    if bloqueio:
+        conn.close()
+        flash(bloqueio, "error")
+        return redirect(url_for("extrato"))
     conn.execute("DELETE FROM transferencias WHERE id=?", (transf_id,))
     conn.commit()
     conn.close()
+    log.info("transferencia_excluida id=%s usuario_id=%s", transf_id, session.get("usuario_id"))
     flash("Transferência excluída.", "success")
     return redirect(url_for("extrato"))
 
@@ -491,9 +644,12 @@ def extrato():
     conn = get_conn()
     contas = _contas_ativas(conn)
 
-    conta_id = request.args.get("conta_id") or ""
-    data_ini = request.args.get("data_ini") or ""
-    data_fim = request.args.get("data_fim") or ""
+    # Filtros inválidos são ignorados (antes geravam erro 500 no banco).
+    conta_id = str(_id_ou_none(request.args.get("conta_id")) or "")
+    data_ini = ler_data(request.args.get("data_ini"))
+    data_fim = ler_data(request.args.get("data_fim"))
+    data_ini = data_ini.isoformat() if data_ini else ""
+    data_fim = data_fim.isoformat() if data_fim else ""
 
     filtros_entrada = []
     params_entrada = []
@@ -564,9 +720,11 @@ def extrato():
 
     totais_entradas = _totais_por_tipo(entradas)
     total_saidas = sum(float(s["valor"]) for s in saidas)
+    meses_travados = fechamentos.meses_fechados(conn)
     conn.close()
     return render_template(
         "extrato.html",
+        meses_fechados=meses_travados,
         contas=contas,
         entradas=entradas,
         saidas=saidas,
@@ -580,7 +738,11 @@ def extrato():
 
 
 def _dados_fechamento(mes):
-    """Retorna dict com todos os dados do fechamento de um mês."""
+    """Retorna dict com todos os dados do fechamento de um mês.
+
+    Valores monetários em Decimal; repasses arredondados em centavos
+    (meio para cima) para o valor exibido ser exatamente o valor enviado.
+    """
     conn = get_conn()
     entradas = conn.execute(
         """SELECT e.*, c.nome AS conta_nome, COALESCE(d.nome, e.nome_avulso) AS nome_pessoa
@@ -603,12 +765,11 @@ def _dados_fechamento(mes):
     dp_row = conn.execute(
         "SELECT valor, observacao FROM dizimo_pastor WHERE mes = ?", (mes,)
     ).fetchone()
-    dizimo_pastor = float(dp_row["valor"]) if dp_row else 0.0
+    dizimo_pastor = Decimal(dp_row["valor"]) if dp_row else Decimal("0.00")
     dizimo_pastor_obs = dp_row["observacao"] if dp_row else ""
 
     # Saldo acumulado: todas as entradas e saídas até o último dia do mês selecionado
     ano, m = int(mes[:4]), int(mes[5:7])
-    import calendar
     ultimo_dia = calendar.monthrange(ano, m)[1]
     data_ate = f"{mes}-{ultimo_dia:02d}"
     total_entradas_acum = conn.execute(
@@ -617,26 +778,26 @@ def _dados_fechamento(mes):
     total_saidas_acum = conn.execute(
         "SELECT COALESCE(SUM(valor),0) AS t FROM saidas WHERE data <= ?", (data_ate,)
     ).fetchone()["t"] or 0
-    saldo_acumulado = float(total_entradas_acum) - float(total_saidas_acum)
+    saldo_acumulado = Decimal(total_entradas_acum) - Decimal(total_saidas_acum)
 
     conn.close()
 
-    total_bruto = sum(float(e["valor"]) for e in entradas)
-    total_saidas = sum(float(s["valor"]) for s in saidas)
-    valor_sede = total_bruto * TAXA_SEDE
-    valor_fundo = total_bruto * TAXA_FUNDO
-    valor_regional = total_bruto * TAXA_REGIONAL
+    total_bruto = sum((Decimal(e["valor"]) for e in entradas), Decimal("0.00"))
+    total_saidas = sum((Decimal(s["valor"]) for s in saidas), Decimal("0.00"))
+    valor_sede = arredondar(total_bruto * TAXA_SEDE)
+    valor_fundo = arredondar(total_bruto * TAXA_FUNDO)
+    valor_regional = arredondar(total_bruto * TAXA_REGIONAL)
     valor_total_taxas = valor_sede + valor_fundo + valor_regional
     total_enviado_sede = valor_sede + valor_fundo + dizimo_pastor
 
     totais_entradas = _totais_por_tipo(entradas)
 
-    totais_categorias = {cat: 0.0 for cat in CATEGORIAS_SAIDA}
+    totais_categorias = {cat: Decimal("0.00") for cat in CATEGORIAS_SAIDA}
     for s in saidas:
         cat = s["categoria"] or _CATEGORIA_FALLBACK
         if cat not in totais_categorias:
             cat = _CATEGORIA_FALLBACK
-        totais_categorias[cat] += float(s["valor"])
+        totais_categorias[cat] += Decimal(s["valor"])
 
     return dict(
         mes=mes,
@@ -663,19 +824,110 @@ def _dados_fechamento(mes):
 
 @app.route("/fechamento")
 def fechamento():
-    hoje = date.today()
-    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
+    mes = _mes_do_request()
     dados = _dados_fechamento(mes)
-    return render_template("fechamento.html", **dados)
+    conn = get_conn()
+    situacao = fechamentos.obter_situacao(conn, mes)
+    historico = fechamentos.historico(conn, mes)
+    conn.close()
+    travado = bool(situacao and situacao["status"] == fechamentos.STATUS_FECHADO)
+    divergentes = (
+        fechamentos.divergencias(situacao.get("totais"), fechamentos.snapshot_totais(dados))
+        if travado else []
+    )
+    if divergentes:
+        log.error("fechamento_divergente mes=%s chaves=%s", mes, ",".join(divergentes))
+    return render_template(
+        "fechamento.html", **dados, situacao=situacao, travado=travado,
+        historico=historico, divergentes=divergentes,
+        mes_label=fechamentos.formatar_mes(mes),
+    )
+
+
+@app.route("/fechamento/efetivar", methods=["POST"])
+@requer_papel("admin", "tesoureiro")
+@limiter.limit(lambda: current_app.config["LIMITE_CONFIRMACAO_SENHA"],
+               key_func=lambda: f"confirma-senha:{session.get('usuario_id')}")
+def efetivar_fechamento():
+    mes = mes_valido(request.form.get("mes"))
+    if not mes:
+        flash("Mês inválido.", "error")
+        return redirect(url_for("fechamento"))
+    conn = get_conn()
+    if not _confere_senha(conn, session["usuario_id"], request.form.get("senha", "")):
+        conn.close()
+        log.warning("efetivar_senha_incorreta mes=%s usuario_id=%s", mes, session["usuario_id"])
+        flash("Senha incorreta. O fechamento não foi efetivado.", "error")
+        return redirect(url_for("fechamento", mes=mes))
+    conn.close()
+
+    totais = fechamentos.snapshot_totais(_dados_fechamento(mes))
+    observacao = (request.form.get("observacao") or "").strip()[:500] or None
+    conn = get_conn()
+    efetivou = fechamentos.efetivar(conn, mes, session["usuario_id"], totais, observacao, _ip_cliente())
+    conn.commit()
+    conn.close()
+    if efetivou:
+        flash(f"Fechamento de {fechamentos.formatar_mes(mes)} efetivado. O mês está travado "
+              "para alterações e o PDF agora é o oficial.", "success")
+    else:
+        flash("Este mês já estava efetivado.", "error")
+    return redirect(url_for("fechamento", mes=mes))
+
+
+@app.route("/fechamento/reabrir", methods=["POST"])
+@requer_papel("admin")
+@limiter.limit(lambda: current_app.config["LIMITE_CONFIRMACAO_SENHA"],
+               key_func=lambda: f"confirma-senha:{session.get('usuario_id')}")
+def reabrir_fechamento():
+    mes = mes_valido(request.form.get("mes"))
+    if not mes:
+        flash("Mês inválido.", "error")
+        return redirect(url_for("fechamento"))
+    motivo = (request.form.get("motivo") or "").strip()
+    erro_motivo = fechamentos.validar_motivo(motivo)
+    if erro_motivo:
+        flash(erro_motivo, "error")
+        return redirect(url_for("fechamento", mes=mes))
+    conn = get_conn()
+    if not _confere_senha(conn, session["usuario_id"], request.form.get("senha", "")):
+        conn.close()
+        log.warning("reabrir_senha_incorreta mes=%s usuario_id=%s", mes, session["usuario_id"])
+        flash("Senha incorreta. O mês continua travado.", "error")
+        return redirect(url_for("fechamento", mes=mes))
+    reabriu = fechamentos.reabrir(conn, mes, session["usuario_id"], motivo, _ip_cliente())
+    conn.commit()
+    conn.close()
+    if reabriu:
+        flash(f"Mês {fechamentos.formatar_mes(mes)} reaberto. Faça as correções e efetive novamente.", "success")
+    else:
+        flash("Este mês não estava efetivado.", "error")
+    return redirect(url_for("fechamento", mes=mes))
+
+
+def _ler_valor_dizimo_pastor(texto):
+    """Dízimo do pastor aceita zero (para zerar o mês); demais regras de ler_valor."""
+    texto = (texto or "").strip()
+    if texto in ("", "0", "0,00", "0.00", "0,0", "0.0"):
+        return Decimal("0.00")
+    return ler_valor(texto)
 
 
 @app.route("/fechamento/dizimo-pastor", methods=["POST"])
 @requer_papel("admin", "tesoureiro")
 def salvar_dizimo_pastor():
-    mes = request.form.get("mes", "")
-    valor = float(request.form.get("valor") or 0)
-    obs = request.form.get("observacao", "")
+    mes = mes_valido(request.form.get("mes"))
+    valor = _ler_valor_dizimo_pastor(request.form.get("valor"))
+    obs = (request.form.get("observacao") or "").strip()[:300]
+    if not mes or valor is None:
+        flash("Informe um mês e um valor válidos.", "error")
+        return redirect(url_for("fechamento", mes=mes) if mes else url_for("fechamento"))
     conn = get_conn()
+    bloqueio = _bloqueio_mes(conn, mes)
+    if bloqueio:
+        conn.close()
+        flash(bloqueio, "error")
+        return redirect(url_for("fechamento", mes=mes))
     existing = conn.execute("SELECT id FROM dizimo_pastor WHERE mes = ?", (mes,)).fetchone()
     if existing:
         conn.execute(
@@ -693,10 +945,53 @@ def salvar_dizimo_pastor():
     return redirect(url_for("fechamento", mes=mes))
 
 
-def _pdf_story_mes(dados, styles, azul, verde, laranja, fmt):
-    """Retorna lista de flowables ReportLab para um mês de fechamento."""
-    from reportlab.platypus import PageBreak as _PB
+class _MarcaPrevia(Flowable):
+    """Flowable invisível que informa ao rodapé/marca d'água se as páginas
+    seguintes são de um mês em PRÉVIA ou EFETIVADO (PDF de vários meses)."""
 
+    def __init__(self, estado: dict, previa: bool):
+        super().__init__()
+        self._estado = estado
+        self._previa = previa
+        self.width = self.height = 0
+
+    def wrap(self, *_args):
+        return 0, 0
+
+    def draw(self):
+        self._estado["previa"] = self._previa
+
+
+def _desenhar_marca_dagua(estado: dict):
+    """Callback de página: escreve 'PRÉVIA — NÃO ENVIAR' na diagonal."""
+    def _desenhar(canv, _doc):
+        if not estado.get("previa"):
+            return
+        canv.saveState()
+        canv.setFont("Helvetica-Bold", 54)
+        canv.setFillColor(colors.HexColor("#c0392b"))
+        canv.setFillAlpha(0.12)
+        largura, altura = A4
+        canv.translate(largura / 2, altura / 2)
+        canv.rotate(45)
+        canv.drawCentredString(0, 20, "PRÉVIA")
+        canv.setFont("Helvetica-Bold", 22)
+        canv.drawCentredString(0, -20, "NÃO ENVIAR À SEDE")
+        canv.restoreState()
+    return _desenhar
+
+
+def _situacao_pdf(situacao) -> tuple[bool, str]:
+    """(é_prévia, texto do selo) para o cabeçalho do mês no PDF."""
+    if situacao and situacao["status"] == fechamentos.STATUS_FECHADO:
+        quando = situacao["fechado_em"].strftime("%d/%m/%Y %H:%M") if situacao.get("fechado_em") else ""
+        quem = escapar_xml(situacao.get("fechado_por_nome") or "")
+        return False, f"FECHAMENTO EFETIVADO em {quando} por {quem}"
+    return True, "PRÉVIA PARA CONFERÊNCIA — valores sujeitos a alteração, não enviar à sede"
+
+
+def _pdf_story_mes(dados, styles, azul, verde, laranja, fmt, situacao=None):
+    """Retorna lista de flowables ReportLab para um mês de fechamento."""
     MESES_PT = {
         "01": "Janeiro", "02": "Fevereiro", "03": "Março", "04": "Abril",
         "05": "Maio", "06": "Junho", "07": "Julho", "08": "Agosto",
@@ -718,9 +1013,18 @@ def _pdf_story_mes(dados, styles, azul, verde, laranja, fmt):
     secao_style = ParagraphStyle("secao", parent=styles["Heading2"],
                                  fontSize=12, textColor=azul, spaceBefore=12, spaceAfter=4)
 
+    previa, selo = _situacao_pdf(situacao)
+    selo_style = ParagraphStyle(
+        "selo", parent=styles["Normal"], fontSize=9, leading=12, spaceAfter=8,
+        textColor=colors.HexColor("#922b21") if previa else colors.HexColor("#196f3d"),
+        backColor=colors.HexColor("#fadbd8") if previa else colors.HexColor("#d4efdf"),
+        borderPadding=(4, 6, 4, 6), fontName="Helvetica-Bold",
+    )
+
     els = []
     els.append(Paragraph("TESOURARIA ISOSED", titulo_style))
     els.append(Paragraph(f"Fechamento Mensal — {mes_label}", sub_style))
+    els.append(Paragraph(selo, selo_style))
     els.append(HRFlowable(width="100%", thickness=1, color=azul))
     els.append(Spacer(1, 0.4*cm))
 
@@ -860,7 +1164,6 @@ def _pdf_setup():
 
 def _range_meses(mes_ini, mes_fim):
     """Retorna lista de strings 'YYYY-MM' entre mes_ini e mes_fim inclusive."""
-    import calendar
     resultado = []
     ano, m = int(mes_ini[:4]), int(mes_ini[5:7])
     ano_fim, m_fim = int(mes_fim[:4]), int(mes_fim[5:7])
@@ -873,63 +1176,81 @@ def _range_meses(mes_ini, mes_fim):
     return resultado
 
 
-@app.route("/fechamento/pdf")
-def fechamento_pdf():
-    hoje = date.today()
-    mes = request.args.get("mes") or f"{hoje.year:04d}-{hoje.month:02d}"
-    dados = _dados_fechamento(mes)
-    buf, doc, styles, azul, verde, laranja, fmt = _pdf_setup()
+def _situacoes(meses):
+    conn = get_conn()
+    situacoes = {m: fechamentos.obter_situacao(conn, m) for m in meses}
+    conn.close()
+    return situacoes
 
-    story = _pdf_story_mes(dados, styles, azul, verde, laranja, fmt)
-    story.append(Spacer(1, 0.6*cm))
-    story.append(Paragraph(
-        f"Emitido em {date.today().strftime('%d/%m/%Y')} por {session.get('usuario_nome', '')}",
-        ParagraphStyle("rodape", parent=styles["Normal"], fontSize=8, textColor=colors.grey),
-    ))
 
-    doc.build(story)
+def _resposta_pdf(buf, nome_arquivo):
     buf.seek(0)
     resp = make_response(buf.read())
     resp.headers["Content-Type"] = "application/pdf"
-    resp.headers["Content-Disposition"] = f"attachment; filename=fechamento_{mes}.pdf"
+    resp.headers["Content-Disposition"] = f"attachment; filename={nome_arquivo}"
     return resp
+
+
+@app.route("/fechamento/pdf")
+def fechamento_pdf():
+    mes = _mes_do_request()
+    dados = _dados_fechamento(mes)
+    situacao = _situacoes([mes])[mes]
+    buf, doc, styles, azul, verde, laranja, fmt = _pdf_setup()
+
+    previa, _ = _situacao_pdf(situacao)
+    estado = {"previa": previa}
+    story = [_MarcaPrevia(estado, previa)]
+    story += _pdf_story_mes(dados, styles, azul, verde, laranja, fmt, situacao)
+    story.append(Spacer(1, 0.6*cm))
+    story.append(Paragraph(
+        f"Emitido em {date.today().strftime('%d/%m/%Y')} por {escapar_xml(session.get('usuario_nome', ''))}",
+        ParagraphStyle("rodape", parent=styles["Normal"], fontSize=8, textColor=colors.grey),
+    ))
+
+    marca = _desenhar_marca_dagua(estado)
+    doc.build(story, onFirstPage=marca, onLaterPages=marca)
+    sufixo = "_PREVIA" if previa else ""
+    return _resposta_pdf(buf, f"fechamento_{mes}{sufixo}.pdf")
 
 
 @app.route("/fechamento/pdf-multiplo")
 def fechamento_pdf_multiplo():
     from reportlab.platypus import PageBreak
-    hoje = date.today()
-    mes_ini = request.args.get("mes_ini") or f"{hoje.year:04d}-{hoje.month:02d}"
-    mes_fim = request.args.get("mes_fim") or f"{hoje.year:04d}-{hoje.month:02d}"
+    mes_ini = _mes_do_request("mes_ini")
+    mes_fim = _mes_do_request("mes_fim")
 
     meses = _range_meses(mes_ini, mes_fim)
-    if len(meses) > 24:
-        flash("Máximo de 24 meses por exportação.", "error")
+    if not meses or len(meses) > 24:
+        flash("Período inválido: informe de 1 a 24 meses, com o início antes do fim.", "error")
         return redirect(url_for("fechamento"))
 
     buf, doc, styles, azul, verde, laranja, fmt = _pdf_setup()
     rodape_style = ParagraphStyle("rodape", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+    situacoes = _situacoes(meses)
 
+    # A marca d'água acompanha cada mês: o estado é trocado pelo _MarcaPrevia
+    # antes da quebra de página, então a página seguinte já nasce com o
+    # estado do próximo mês.
+    estado = {"previa": _situacao_pdf(situacoes[meses[0]])[0]}
     story = []
     for i, mes in enumerate(meses):
         dados = _dados_fechamento(mes)
-        story += _pdf_story_mes(dados, styles, azul, verde, laranja, fmt)
+        story += _pdf_story_mes(dados, styles, azul, verde, laranja, fmt, situacoes[mes])
         if i < len(meses) - 1:
+            story.append(_MarcaPrevia(estado, _situacao_pdf(situacoes[meses[i + 1]])[0]))
             story.append(PageBreak())
 
     story.append(Spacer(1, 0.6*cm))
     story.append(Paragraph(
-        f"Emitido em {date.today().strftime('%d/%m/%Y')} por {session.get('usuario_nome', '')} "
+        f"Emitido em {date.today().strftime('%d/%m/%Y')} por {escapar_xml(session.get('usuario_nome', ''))} "
         f"— período: {mes_ini} a {mes_fim}",
         rodape_style,
     ))
 
-    doc.build(story)
-    buf.seek(0)
-    resp = make_response(buf.read())
-    resp.headers["Content-Type"] = "application/pdf"
-    resp.headers["Content-Disposition"] = f"attachment; filename=fechamento_{mes_ini}_a_{mes_fim}.pdf"
-    return resp
+    marca = _desenhar_marca_dagua(estado)
+    doc.build(story, onFirstPage=marca, onLaterPages=marca)
+    return _resposta_pdf(buf, f"fechamento_{mes_ini}_a_{mes_fim}.pdf")
 
 
 @app.route("/dizimistas", methods=["GET", "POST"])
@@ -996,8 +1317,8 @@ def admin_contas():
     if request.method == "POST":
         nome = request.form.get("nome", "").strip()
         tipo = request.form.get("tipo")
-        if nome and tipo:
-            conn.execute("INSERT INTO contas (nome, tipo) VALUES (?, ?)", (nome, tipo))
+        if nome and tipo in TIPOS_CONTA:
+            conn.execute("INSERT INTO contas (nome, tipo) VALUES (?, ?)", (nome[:100], tipo))
             conn.commit()
             flash("Conta cadastrada.", "success")
         conn.close()
@@ -1025,10 +1346,10 @@ def editar_conta(conta_id):
     if request.method == "POST":
         nome = request.form.get("nome", "").strip()
         tipo = request.form.get("tipo")
-        if nome and tipo:
+        if nome and tipo in TIPOS_CONTA:
             conn.execute(
                 "UPDATE contas SET nome = ?, tipo = ? WHERE id = ?",
-                (nome, tipo, conta_id),
+                (nome[:100], tipo, conta_id),
             )
             conn.commit()
             flash("Conta atualizada.", "success")
@@ -1054,7 +1375,17 @@ def admin_usuarios():
         usuario = request.form.get("usuario", "").strip()
         senha = request.form.get("senha", "")
         papel = request.form.get("papel")
-        if nome and usuario and senha and papel:
+        erros_senha = validar_nova_senha(senha, usuario) if senha else []
+        if not (nome and usuario and senha and papel):
+            flash("Preencha todos os campos.", "error")
+        elif papel not in PAPEIS:
+            flash("Papel inválido.", "error")
+        elif not _RE_LOGIN.match(usuario):
+            flash("Login deve ter de 3 a 50 caracteres: letras, números, ponto, hífen ou sublinhado.", "error")
+        elif erros_senha:
+            for msg in erros_senha:
+                flash(msg, "error")
+        else:
             existente = conn.execute(
                 "SELECT 1 FROM usuarios WHERE usuario = ?", (usuario,)
             ).fetchone()
@@ -1067,9 +1398,9 @@ def admin_usuarios():
                     (nome, usuario, generate_password_hash(senha), papel),
                 )
                 conn.commit()
+                log.info("usuario_criado login=%s papel=%s por_usuario_id=%s",
+                         usuario, papel, session.get("usuario_id"))
                 flash("Usuário criado com sucesso.", "success")
-        else:
-            flash("Preencha todos os campos.", "error")
         conn.close()
         return redirect(url_for("admin_usuarios"))
 
@@ -1093,34 +1424,40 @@ def toggle_usuario(usuario_id):
 
 @app.route("/conta", methods=["GET", "POST"])
 def minha_conta():
-    conn = get_conn()
     if request.method == "POST":
         senha_atual = request.form.get("senha_atual", "")
         nova_senha = request.form.get("nova_senha", "")
+        confirmacao = request.form.get("confirmar_senha", "")
+        conn = get_conn()
         row = conn.execute(
             "SELECT * FROM usuarios WHERE id = ?", (session["usuario_id"],)
         ).fetchone()
+        erros = validar_nova_senha(nova_senha, row["usuario"], confirmacao)
+        if nova_senha and nova_senha == senha_atual:
+            erros.append("A nova senha deve ser diferente da atual.")
         if not check_password_hash(row["senha_hash"], senha_atual):
             flash("Senha atual incorreta.", "error")
-        elif not nova_senha:
-            flash("Informe a nova senha.", "error")
+        elif erros:
+            for msg in erros:
+                flash(msg, "error")
         else:
             conn.execute(
                 "UPDATE usuarios SET senha_hash = ? WHERE id = ?",
                 (generate_password_hash(nova_senha), session["usuario_id"]),
             )
             conn.commit()
+            session.pop("trocar_senha", None)
+            log.info("senha_alterada usuario_id=%s", session["usuario_id"])
             flash("Senha atualizada com sucesso.", "success")
         conn.close()
         return redirect(url_for("minha_conta"))
 
-    conn.close()
     return render_template("conta.html")
 
 
 @app.route("/api/dizimistas")
 def api_dizimistas():
-    termo = request.args.get("q", "")
+    termo = request.args.get("q", "")[:100]
     conn = get_conn()
     rows = conn.execute(
         "SELECT id, nome FROM dizimistas WHERE ativo=TRUE AND nome ILIKE ? ORDER BY nome LIMIT 10",
@@ -1131,29 +1468,53 @@ def api_dizimistas():
 
 
 
-_ESTADOS_CIVIS = ["Solteiro(a)", "Casado(a)", "Divorciado(a)", "Viúvo(a)", "Separado(a)", "União Estável"]
+_ESTADOS_CIVIS = ESTADOS_CIVIS
+_CAMPOS_PENDENTE = ["nome", "sexo", "endereco", "numero", "bairro", "cep",
+                    "naturalidade", "data_nascimento", "data_batizo", "fone",
+                    "profissao", "rg", "cpf", "estado_civil", "nome_conjuge",
+                    "cargo_igreja", "funcao"]
+# Campo invisível: pessoas não preenchem, robôs de spam costumam preencher.
+_CAMPO_ARMADILHA = "website"
+
+
+def _render_cadastro(dados=None, erros=None, status=200):
+    return render_template(
+        "cadastro_publico.html", estados_civis=_ESTADOS_CIVIS, f=dados or {}, erros=erros or [],
+        turnstile_site_key=current_app.config["TURNSTILE_SITE_KEY"],
+    ), status
 
 
 @app.route("/cadastro", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["LIMITE_CADASTRO_IP"], methods=["POST"])
 def cadastro_publico():
-    if request.method == "POST":
-        campos = ["nome", "sexo", "endereco", "numero", "bairro", "cep",
-                  "naturalidade", "data_nascimento", "data_batizo", "fone",
-                  "profissao", "rg", "cpf", "estado_civil", "nome_conjuge",
-                  "cargo_igreja", "funcao"]
-        dados = {c: request.form.get(c, "").strip() or None for c in campos}
-        conn = get_conn()
-        conn.execute(
-            """INSERT INTO membros_pendentes
-               (nome,sexo,endereco,numero,bairro,cep,naturalidade,data_nascimento,
-                data_batizo,fone,profissao,rg,cpf,estado_civil,nome_conjuge,cargo_igreja,funcao)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            tuple(dados[c] for c in campos),
-        )
-        conn.commit()
-        conn.close()
+    if request.method == "GET":
+        return _render_cadastro()
+
+    if request.form.get(_CAMPO_ARMADILHA):
+        # Finge sucesso para não ensinar o robô a contornar a armadilha.
+        log.warning("cadastro_descartado_armadilha ip=%s", _ip_cliente())
         return render_template("cadastro_publico_ok.html")
-    return render_template("cadastro_publico.html", estados_civis=_ESTADOS_CIVIS)
+
+    dados, erros = validar_cadastro_membro(request.form, date.today())
+    segredo = current_app.config["TURNSTILE_SECRET_KEY"]
+    if not erros and segredo and not verificar_turnstile(
+        request.form.get("cf-turnstile-response", ""), _ip_cliente(), segredo,
+        current_app.config["TURNSTILE_TIMEOUT_S"],
+    ):
+        erros = ["Não foi possível confirmar que você não é um robô. Tente novamente."]
+    if erros:
+        return _render_cadastro(dados, erros, 400)
+
+    conn = get_conn()
+    conn.execute(
+        f"""INSERT INTO membros_pendentes ({",".join(_CAMPOS_PENDENTE)})
+            VALUES ({",".join("?" for _ in _CAMPOS_PENDENTE)})""",
+        tuple(dados[c] for c in _CAMPOS_PENDENTE),
+    )
+    conn.commit()
+    conn.close()
+    log.info("cadastro_publico_recebido ip=%s", _ip_cliente())
+    return render_template("cadastro_publico_ok.html")
 
 
 @app.route("/admin/membros")
@@ -1298,8 +1659,8 @@ def editar_membro(mid):
             (request.form.get("nome"), request.form.get("sexo"),
              request.form.get("endereco"), request.form.get("numero"),
              request.form.get("bairro"), request.form.get("cep") or None,
-             request.form.get("naturalidade"), request.form.get("data_nascimento") or None,
-             request.form.get("data_batizo") or None, request.form.get("fone"),
+             request.form.get("naturalidade"), ler_data(request.form.get("data_nascimento")),
+             ler_data(request.form.get("data_batizo")), request.form.get("fone"),
              request.form.get("profissao") or None, request.form.get("rg") or None,
              request.form.get("cpf") or None, request.form.get("estado_civil"),
              request.form.get("nome_conjuge") or None, request.form.get("cargo_igreja"),

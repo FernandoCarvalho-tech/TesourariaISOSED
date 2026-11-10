@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <h2>Cadastro de Dizimistas</h2>
-  <form method="POST" class="row">
+  <form method="POST" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="nome" placeholder="Nome completo" required>
     <button type="submit">Adicionar</button>
   </form>
@@ -21,7 +21,7 @@
           {% if session.get('papel') == 'admin' %}
           <a href="{{ url_for('editar_dizimista', dizimista_id=d.id) }}" class="btn secondary">Editar</a>
           {% endif %}
-          <form method="POST" action="{{ url_for('toggle_dizimista', dizimista_id=d.id) }}" style="display:inline;">
+          <form method="POST" action="{{ url_for('toggle_dizimista', dizimista_id=d.id) }}" style="display:inline;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="secondary">{{ 'Desativar' if d.ativo else 'Ativar' }}</button>
           </form>
         </td>

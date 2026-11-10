@@ -69,10 +69,14 @@
         <td data-label="Lançado em">{{ e.criado_em.strftime("%d/%m/%Y %H:%M") }}</td>
         {% if session.get('papel') == 'admin' %}
         <td style="white-space:nowrap;">
+          {% if e.data.strftime('%Y-%m') in meses_fechados %}
+          <span title="Mês efetivado — reabra na tela de Fechamento para alterar" style="color:#64748b; font-size:13px;">🔒 Mês fechado</span>
+          {% else %}
           <a href="{{ url_for('editar_entrada', entrada_id=e.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a>
-          <form method="POST" action="{{ url_for('excluir_entrada', entrada_id=e.id) }}" style="display:inline;" onsubmit="return confirm('Excluir esta entrada de R$ {{ '%.2f'|format(e.valor)|replace('.', ',') }}? Esta ação não pode ser desfeita.');">
+          <form method="POST" action="{{ url_for('excluir_entrada', entrada_id=e.id) }}" style="display:inline;" onsubmit="return confirm('Excluir esta entrada de R$ {{ '%.2f'|format(e.valor)|replace('.', ',') }}? Esta ação não pode ser desfeita.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn danger" style="margin-top:0; padding:4px 10px; font-size:13px;">Excluir</button>
           </form>
+          {% endif %}
         </td>
         {% endif %}
       </tr>
@@ -99,10 +103,14 @@
         <td data-label="Lançado em">{{ s.criado_em.strftime("%d/%m/%Y %H:%M") }}</td>
         {% if session.get('papel') == 'admin' %}
         <td style="white-space:nowrap;">
+          {% if s.data.strftime('%Y-%m') in meses_fechados %}
+          <span title="Mês efetivado — reabra na tela de Fechamento para alterar" style="color:#64748b; font-size:13px;">🔒 Mês fechado</span>
+          {% else %}
           <a href="{{ url_for('editar_saida', saida_id=s.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a>
-          <form method="POST" action="{{ url_for('excluir_saida', saida_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Excluir esta saída de R$ {{ '%.2f'|format(s.valor)|replace('.', ',') }}? Esta ação não pode ser desfeita.');">
+          <form method="POST" action="{{ url_for('excluir_saida', saida_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Excluir esta saída de R$ {{ '%.2f'|format(s.valor)|replace('.', ',') }}? Esta ação não pode ser desfeita.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn danger" style="margin-top:0; padding:4px 10px; font-size:13px;">Excluir</button>
           </form>
+          {% endif %}
         </td>
         {% endif %}
       </tr>
@@ -128,10 +136,14 @@
         <td data-label="Lançado em">{{ t.criado_em.strftime("%d/%m/%Y %H:%M") }}</td>
         {% if session.get('papel') == 'admin' %}
         <td style="white-space:nowrap;">
+          {% if t.data.strftime('%Y-%m') in meses_fechados %}
+          <span title="Mês efetivado — reabra na tela de Fechamento para alterar" style="color:#64748b; font-size:13px;">🔒 Mês fechado</span>
+          {% else %}
           <a href="{{ url_for('editar_transferencia', transf_id=t.id) }}" class="btn secondary" style="margin-top:0; padding:4px 10px; font-size:13px;">Editar</a>
-          <form method="POST" action="{{ url_for('excluir_transferencia', transf_id=t.id) }}" style="display:inline;" onsubmit="return confirm('Excluir esta transferência de R$ {{ '%.2f'|format(t.valor)|replace('.', ',') }}? Esta ação não pode ser desfeita.');">
+          <form method="POST" action="{{ url_for('excluir_transferencia', transf_id=t.id) }}" style="display:inline;" onsubmit="return confirm('Excluir esta transferência de R$ {{ '%.2f'|format(t.valor)|replace('.', ',') }}? Esta ação não pode ser desfeita.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn danger" style="margin-top:0; padding:4px 10px; font-size:13px;">Excluir</button>
           </form>
+          {% endif %}
         </td>
         {% endif %}
       </tr>
